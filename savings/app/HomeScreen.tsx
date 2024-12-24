@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import { StackNavigationProp } from "@react-navigation/stack";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -11,6 +12,16 @@ import {
   Platform,
   SafeAreaView,
 } from "react-native";
+
+import {
+  create,
+  open,
+  dismissLink,
+  LinkSuccess,
+  LinkExit,
+  LinkIOSPresentationStyle,
+  LinkLogLevel,
+} from "react-native-plaid-link-sdk";
 
 const spendingPots = [
   { id: "1", label: "Add pot", icon: null },
@@ -55,9 +66,26 @@ const bankCards = [
   { id: "3", label: "Lloyds", icon: "🏦" },
 ];
 
-export default function HomeScreen() {
+export type RootStackParamList = {
+  Home: undefined; // No parameters for Home screen
+  Success: undefined; // No parameters for Success screen
+};
+
+type HomeScreenNavigationProp = StackNavigationProp<
+  RootStackParamList,
+  "Success"
+>;
+
+interface HomeScreenProps {
+  navigation: HomeScreenNavigationProp;
+}
+
+const HomeScreen = ({ navigation }: HomeScreenProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isModalVisible, setModalVisible] = useState(false);
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const address = Platform.OS === "ios" ? "localhost" : "10.0.2.2";
+
   const [newCard, setNewCard] = useState("");
 
   const changeMonth = (direction: number) => {
@@ -71,6 +99,79 @@ export default function HomeScreen() {
   const formattedMonthYear = `${currentMonth.toLocaleString("default", {
     month: "long",
   })} ${currentMonth.getFullYear()}`;
+
+  const createLinkToken = useCallback(async () => {
+    await fetch(`http://${address}:8080/api/create_link_token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ address: address }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        setLinkToken(data.link_token);
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+  }, [setLinkToken]);
+
+  useEffect(() => {
+    if (linkToken == null) {
+      createLinkToken();
+    } else {
+      const tokenConfiguration = createLinkTokenConfiguration(linkToken);
+      create(tokenConfiguration);
+    }
+  }, [linkToken]);
+
+  const createLinkTokenConfiguration = (
+    token: string,
+    noLoadingState: boolean = false
+  ) => {
+    return {
+      token: token,
+      noLoadingState: noLoadingState,
+    };
+  };
+
+  const createLinkOpenProps = () => {
+    return {
+      onSuccess: async (success: LinkSuccess) => {
+        await fetch(`http://${address}:8080/api/exchange_public_token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ public_token: success.publicToken }),
+        }).catch((err) => {
+          console.log(err);
+        });
+
+        // Go to success page
+        navigation.navigate("Success");
+      },
+      onExit: (linkExit: LinkExit) => {
+        console.log("Exit: ", linkExit);
+        dismissLink();
+      },
+      iOSPresentationStyle: LinkIOSPresentationStyle.MODAL,
+      logLevel: LinkLogLevel.ERROR,
+    };
+  };
+
+  console.log("token", linkToken);
+
+  const handleOpenLink = () => {
+    const openProps = createLinkOpenProps();
+    try {
+      console.log(open(openProps));
+      open(openProps);
+    } catch (error) {
+      console.log(error);
+    }
+  };
 
   const renderBankActivity = ({ item }: { item: (typeof bankActivity)[0] }) => (
     <View style={styles.transaction}>
@@ -125,10 +226,7 @@ export default function HomeScreen() {
           horizontal
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={() => item.label === "Add Card" && setModalVisible(true)}
-            >
+            <TouchableOpacity style={styles.card} onPress={handleOpenLink}>
               <Text style={styles.cardIcon}>{item.icon || "+"}</Text>
               <Text style={styles.cardLabel}>{item.label}</Text>
             </TouchableOpacity>
@@ -164,20 +262,7 @@ export default function HomeScreen() {
                 value={newCard}
                 onChangeText={setNewCard}
               />
-              <Button
-                title="Add Card"
-                onPress={() => {
-                  if (newCard) {
-                    bankCards.push({
-                      id: Date.now().toString(),
-                      label: newCard,
-                      icon: "💳",
-                    });
-                    setNewCard("");
-                    setModalVisible(false);
-                  }
-                }}
-              />
+              <Button title="Add Card" onPress={handleOpenLink} />
               <Button title="Cancel" onPress={() => setModalVisible(false)} />
             </View>
           </View>
@@ -185,7 +270,7 @@ export default function HomeScreen() {
       </View>
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -351,3 +436,5 @@ const styles = StyleSheet.create({
     elevation: 5, // for Android shadow
   },
 });
+
+export default HomeScreen;
