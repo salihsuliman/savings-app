@@ -37,6 +37,6 @@ yarn-error.*
 
 app-example
 
-/ios
+savings/ios
 
 .env
