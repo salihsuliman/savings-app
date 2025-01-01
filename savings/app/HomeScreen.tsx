@@ -11,6 +11,9 @@ import {
   Button,
   Platform,
   SafeAreaView,
+  ActivityIndicator,
+  Alert,
+  ToastAndroid,
 } from "react-native";
 
 import {
@@ -23,41 +26,12 @@ import {
   LinkLogLevel,
 } from "react-native-plaid-link-sdk";
 
+import { WebView } from "react-native-webview";
+
 const spendingPots = [
   { id: "1", label: "Add pot", icon: null },
   { id: "2", label: "Groceries", amount: "£280", icon: "🛒", color: "#4CAF50" },
   { id: "3", label: "Dining", amount: "-£15", icon: "🍴", color: "#E57373" },
-];
-
-const bankActivity = [
-  {
-    id: "1",
-    title: "Water Bill",
-    amount: "-£280",
-    icon: "💧",
-    color: "#2196F3",
-  },
-  {
-    id: "2",
-    title: "Electric Bill",
-    amount: "-£480",
-    icon: "🔌",
-    color: "#FF5722",
-  },
-  {
-    id: "3",
-    title: "Income: Jane transfers",
-    amount: "+£280",
-    icon: "📄",
-    color: "#4CAF50",
-  },
-  {
-    id: "4",
-    title: "Internet Bill",
-    amount: "-£100",
-    icon: "📜",
-    color: "#009688",
-  },
 ];
 
 const bankCards = [
@@ -84,6 +58,10 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isModalVisible, setModalVisible] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [plaidWebView, setPlaidWebView] = useState<string | null>(null);
+  const [addBankModal, setAddBankModal] = useState(false);
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const address = Platform.OS === "ios" ? "localhost" : "10.0.2.2";
 
   const [newCard, setNewCard] = useState("");
@@ -110,6 +88,8 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     })
       .then((response) => response.json())
       .then((data) => {
+        console.log("set link token", data.hosted_link_url);
+        setPlaidWebView(data.hosted_link_url);
         setLinkToken(data.link_token);
       })
       .catch((err) => {
@@ -145,12 +125,13 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ public_token: success.publicToken }),
-        }).catch((err) => {
-          console.log(err);
-        });
-
-        // Go to success page
-        navigation.navigate("Success");
+        })
+          .catch((err) => {
+            console.log(err);
+          })
+          .then(async () => {
+            await getBalance();
+          });
       },
       onExit: (linkExit: LinkExit) => {
         console.log("Exit: ", linkExit);
@@ -167,13 +148,39 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     const openProps = createLinkOpenProps();
     try {
       console.log(open(openProps));
+      console.log(linkToken);
       open(openProps);
     } catch (error) {
       console.log(error);
     }
   };
 
-  const renderBankActivity = ({ item }: { item: (typeof bankActivity)[0] }) => (
+  // Fetch balance data
+  const getBalance = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`http://${address}:8080/api/balance`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      const data = await response.json();
+      console.log(data);
+      setData(data.Balance);
+    } catch (err) {
+      console.log(err);
+      notifyMessage("Failed to fetch balance data");
+    } finally {
+      setLoading(false);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    getBalance();
+  }, []);
+
+  const renderBankActivity = ({ item }: { item: any }) => (
     <View style={styles.transaction}>
       <View
         style={[
@@ -184,93 +191,144 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
         <Text style={styles.transactionIcon}>{item.icon}</Text>
       </View>
       <View style={styles.transactionDetails}>
-        <Text style={styles.transactionTitle}>{item.title}</Text>
-        <Text style={styles.transactionAmount}>{item.amount}</Text>
+        <Text style={styles.transactionTitle}>{item.name}</Text>
+        <Text style={styles.transactionAmount}>
+          {item.iso_currency_code} {item.amount}
+        </Text>
+        <Text style={styles.transactionDate}>{item.date}</Text>
       </View>
     </View>
   );
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Text style={styles.sectionTitle}>Spending pot</Text>
-
-      <View style={styles.spendingContainer}>
-        {/* Spending Pots */}
-        <FlatList
-          data={spendingPots}
-          horizontal
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[styles.pot, { backgroundColor: item.color || "#E0E0E0" }]}
-              onPress={() => item.label === "Add pot" && setModalVisible(true)}
-            >
-              <Text style={styles.potIcon}>{item.icon || "+"}</Text>
-              <Text style={styles.potLabel}>{item.label}</Text>
-              {item.amount && (
-                <Text style={styles.potAmount}>{item.amount}</Text>
+      {addBankModal ? (
+        <>
+          <WebView
+            source={{
+              uri: plaidWebView || "",
+            }}
+            style={styles.webview}
+          />
+          <Button
+            title="Close"
+            onPress={async () => {
+              setAddBankModal(false);
+              // Go to success page
+              navigation.navigate("Success");
+            }}
+          />
+        </>
+      ) : (
+        <>
+          <Text style={styles.sectionTitle}>Spending pot</Text>
+          <View style={styles.spendingContainer}>
+            {/* Spending Pots */}
+            <FlatList
+              data={spendingPots}
+              horizontal
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.pot,
+                    { backgroundColor: item.color || "#E0E0E0" },
+                  ]}
+                  onPress={() =>
+                    item.label === "Add pot" && setModalVisible(true)
+                  }
+                >
+                  <Text style={styles.potIcon}>{item.icon || "+"}</Text>
+                  <Text style={styles.potLabel}>{item.label}</Text>
+                  {item.amount && (
+                    <Text style={styles.potAmount}>{item.amount}</Text>
+                  )}
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
-          )}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.spendingPotsContainer}
-        />
-      </View>
-
-      <Text style={styles.sectionTitle}>Bank activity</Text>
-
-      <View style={styles.bankContainer}>
-        {/* Bank Cards */}
-        <FlatList
-          data={bankCards}
-          horizontal
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.card} onPress={handleOpenLink}>
-              <Text style={styles.cardIcon}>{item.icon || "+"}</Text>
-              <Text style={styles.cardLabel}>{item.label}</Text>
-            </TouchableOpacity>
-          )}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.bankCardsContainer}
-        />
-        {/* Calendar Tool */}
-        <View style={styles.calendarContainer}>
-          <TouchableOpacity onPress={() => changeMonth(-1)}>
-            <Text style={styles.calendarArrow}>{"<"}</Text>
-          </TouchableOpacity>
-          <Text style={styles.calendarMonth}>{formattedMonthYear}</Text>
-          <TouchableOpacity onPress={() => changeMonth(1)}>
-            <Text style={styles.calendarArrow}>{">"}</Text>
-          </TouchableOpacity>
-        </View>
-        {/* Bank Activity */}
-        <FlatList
-          data={bankActivity}
-          keyExtractor={(item) => item.id}
-          renderItem={renderBankActivity}
-          contentContainerStyle={styles.bankActivityContainer}
-        />
-        {/* Modal for Adding a New Card */}
-        <Modal visible={isModalVisible} animationType="fade" transparent>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Add a New Card</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Card Name"
-                value={newCard}
-                onChangeText={setNewCard}
-              />
-              <Button title="Add Card" onPress={handleOpenLink} />
-              <Button title="Cancel" onPress={() => setModalVisible(false)} />
-            </View>
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.spendingPotsContainer}
+            />
           </View>
-        </Modal>
-      </View>
+          <Text style={styles.sectionTitle}>Bank activity</Text>
+          <View style={styles.bankContainer}>
+            {/* Bank Cards */}
+            <FlatList
+              data={bankCards}
+              horizontal
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.card}
+                  onPress={() => {
+                    setAddBankModal(true);
+                    console.log("plaidWebView", plaidWebView);
+                  }}
+                >
+                  <Text style={styles.cardIcon}>{item.icon || "+"}</Text>
+                  <Text style={styles.cardLabel}>{item.label}</Text>
+                </TouchableOpacity>
+              )}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.bankCardsContainer}
+            />
+            {/* Calendar Tool */}
+            <View style={styles.calendarContainer}>
+              <TouchableOpacity onPress={() => changeMonth(-1)}>
+                <Text style={styles.calendarArrow}>{"<"}</Text>
+              </TouchableOpacity>
+              <Text style={styles.calendarMonth}>{formattedMonthYear}</Text>
+              <TouchableOpacity onPress={() => changeMonth(1)}>
+                <Text style={styles.calendarArrow}>{">"}</Text>
+              </TouchableOpacity>
+            </View>
+            {/* Bank Activity */}
+            {loading ? (
+              <ActivityIndicator size="large" color="#0000ff" />
+            ) : data.length === 0 ? (
+              <Text style={styles.noTransactionsText}>
+                No transactions available
+              </Text>
+            ) : (
+              <FlatList
+                data={data}
+                keyExtractor={(item) => item.transaction_id}
+                renderItem={renderBankActivity}
+                contentContainerStyle={styles.bankActivityContainer}
+              />
+            )}
+            {/* Modal for Adding a New Card */}
+            <Modal visible={isModalVisible} animationType="fade" transparent>
+              <View style={styles.modalContainer}>
+                <View style={styles.modalContent}>
+                  <Text style={styles.modalTitle}>Add a New Card</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Card Name"
+                    value={newCard}
+                    onChangeText={setNewCard}
+                  />
+                  <Button title="Add Card" onPress={handleOpenLink} />
+                  <Button
+                    title="Cancel"
+                    onPress={() => setModalVisible(false)}
+                  />
+                </View>
+              </View>
+            </Modal>
+          </View>
+        </>
+      )}
     </SafeAreaView>
   );
 };
+
+function notifyMessage(msg: string) {
+  if (Platform.OS === "android") {
+    ToastAndroid.show(msg, ToastAndroid.SHORT);
+  } else {
+    Alert.alert(msg);
+  }
+}
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -394,6 +452,16 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#E57373",
   },
+  transactionDate: {
+    fontSize: 12,
+    color: "#999",
+  },
+  noTransactionsText: {
+    fontSize: 18,
+    color: "#999",
+    textAlign: "center",
+    marginTop: 20,
+  },
   modalContainer: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -434,6 +502,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 5, // for Android shadow
+  },
+  webview: {
+    flex: 1,
+    width: "100%",
   },
 });
 

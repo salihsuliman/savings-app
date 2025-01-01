@@ -51,6 +51,10 @@ app.post(
         country_codes: ["US", "US", "CA", "ES", "FR", "GB", "IE", "NL"],
         redirect_uri: process.env.PLAID_SANDBOX_REDIRECT_URI!,
         webhook: process.env.PLAID_WEBHOOK,
+        hosted_link: {
+          is_mobile_app: false,
+          completion_redirect_uri: process.env.PLAID_SANDBOX_REDIRECT_URI!,
+        },
       };
     } else {
       // Payload if running on Android
@@ -62,6 +66,10 @@ app.post(
         country_codes: ["US", "US", "CA", "ES", "FR", "GB", "IE", "NL"],
         android_package_name: process.env.PLAID_ANDROID_PACKAGE_NAME!,
         webhook: process.env.PLAID_WEBHOOK,
+        hosted_link: {
+          is_mobile_app: false,
+          completion_redirect_uri: process.env.PLAID_SANDBOX_REDIRECT_URI!,
+        },
       };
     }
 
@@ -75,6 +83,8 @@ app.post(
   }
 );
 
+let access_token = "";
+
 // Route to exchange public token for access token
 app.post(
   "/api/exchange_public_token",
@@ -85,8 +95,13 @@ app.post(
         public_token: req.body.public_token,
       });
 
+      console.log("exchange details", {
+        exchangeResponse: exchangeResponse.data.access_token,
+        public_token: req.body.public_token,
+      });
+
       // Store the access_token in session (for demo purposes)
-      req.session.access_token = exchangeResponse.data.access_token;
+      access_token = exchangeResponse.data.access_token;
       res.json(true);
     } catch (error) {
       next(error);
@@ -98,24 +113,24 @@ app.post(
 app.post(
   "/api/balance",
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const access_token = req.session.access_token;
-
     console.log("getting balance!!!!!");
+
+    console.log("request", req.session);
 
     try {
       if (!access_token) {
         res.status(400).json({ error: "Access token not available" });
       }
-      const balanceResponse = await client
+      await client
         .transactionsGet({
           access_token: access_token || "",
-          start_date: "2021-01-01",
-          end_date: "2021-12-31",
+          start_date: "2024-06-01",
+          end_date: "2024-12-31",
         })
         .then((response) => {
-          console.log("response", response.data);
+          console.log("response", response.data.transactions);
           res.json({
-            Balance: response.data,
+            Balance: response.data.transactions,
           });
         })
         .catch((error) => {
@@ -130,4 +145,5 @@ app.post(
 // Start the server
 app.listen(port, () => {
   console.log(`Backend server is running on port ${port}...`);
+  console.log("process.env.PLAID_WEBHOOK", process.env.PLAID_WEBHOOK);
 });
