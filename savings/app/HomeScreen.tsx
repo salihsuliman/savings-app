@@ -1,3 +1,4 @@
+import { supabase } from "../lib/supabase";
 import { StackNavigationProp } from "@react-navigation/stack";
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -42,12 +43,12 @@ const bankCards = [
 
 export type RootStackParamList = {
   Home: undefined; // No parameters for Home screen
-  Success: undefined; // No parameters for Success screen
+  Login: undefined; // No parameters for Success screen
 };
 
 type HomeScreenNavigationProp = StackNavigationProp<
   RootStackParamList,
-  "Success"
+  "Login"
 >;
 
 interface HomeScreenProps {
@@ -62,7 +63,8 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
   const [addBankModal, setAddBankModal] = useState(false);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const address = Platform.OS === "ios" ? "localhost" : "10.0.2.2";
+  const address =
+    Platform.OS === "ios" ? process.env.EXPO_PUBLIC_BACKEND_URL : "10.0.2.2";
 
   const [newCard, setNewCard] = useState("");
 
@@ -78,8 +80,10 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     month: "long",
   })} ${currentMonth.getFullYear()}`;
 
+  console.log("create token", `${address}/create_link_token`);
+
   const createLinkToken = useCallback(async () => {
-    await fetch(`http://${address}:8080/api/create_link_token`, {
+    await fetch(`${address}/create_link_token`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -119,7 +123,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
   const createLinkOpenProps = () => {
     return {
       onSuccess: async (success: LinkSuccess) => {
-        await fetch(`http://${address}:8080/api/exchange_public_token`, {
+        await fetch(`${address}/exchange_public_token`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -159,14 +163,14 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
   const getBalance = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`http://${address}:8080/api/balance`, {
+      const response = await fetch(`${address}/balance`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
       });
       const data = await response.json();
-      console.log(data);
+      console.log("returned balance", data.Balance);
       setData(data.Balance);
     } catch (err) {
       console.log(err);
@@ -214,8 +218,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
             title="Close"
             onPress={async () => {
               setAddBankModal(false);
-              // Go to success page
-              navigation.navigate("Success");
+              await getBalance();
             }}
           />
         </>
@@ -284,7 +287,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
             {/* Bank Activity */}
             {loading ? (
               <ActivityIndicator size="large" color="#0000ff" />
-            ) : data.length === 0 ? (
+            ) : !data || (data && data.length === 0) ? (
               <Text style={styles.noTransactionsText}>
                 No transactions available
               </Text>
@@ -318,6 +321,15 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
           </View>
         </>
       )}
+      <View style={styles.verticallySpaced}>
+        <Button
+          title="Sign Out"
+          onPress={async () => {
+            await supabase.auth.signOut();
+            navigation.navigate("Login");
+          }}
+        />
+      </View>
     </SafeAreaView>
   );
 };
@@ -506,6 +518,11 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     width: "100%",
+  },
+  verticallySpaced: {
+    paddingTop: 4,
+    paddingBottom: 4,
+    alignSelf: "stretch",
   },
 });
 

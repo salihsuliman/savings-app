@@ -17,9 +17,13 @@
   "dependencies": {
     "@burstware/expo-plaid-link": "^1.0.7",
     "@expo/vector-icons": "^14.0.2",
+    "@react-native-async-storage/async-storage": "1.23.1",
     "@react-navigation/bottom-tabs": "^7.0.0",
     "@react-navigation/native": "^7.0.14",
     "@react-navigation/stack": "^7.1.1",
+    "@rneui/base": "^4.0.0-rc.8",
+    "@rneui/themed": "^4.0.0-rc.8",
+    "@supabase/supabase-js": "^2.47.10",
     "@types/react-navigation": "^3.0.8",
     "axios": "^1.7.9",
     "expo": "~52.0.19",

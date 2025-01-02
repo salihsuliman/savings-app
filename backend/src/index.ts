@@ -3,12 +3,18 @@ import express, { Request, Response, NextFunction } from "express";
 import bodyParser from "body-parser";
 import session from "express-session";
 import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
+import { createClient } from "@supabase/supabase-js";
 
 // Load environment variables from a .env file
 dotenv.config();
 
 const app = express();
 const port = 8080;
+
+const supabase = createClient(
+  process.env.TEST_SUPABASE_URL || "",
+  process.env.TEST_SUPABASE_SERVICE_ROLE_KEY || ""
+);
 
 // Session configuration
 app.use(session({ secret: "bosco", saveUninitialized: true, resave: true }));
@@ -99,6 +105,11 @@ app.post(
         exchangeResponse: exchangeResponse.data.access_token,
         public_token: req.body.public_token,
       });
+
+      const session = await supabase.auth.getSession();
+
+      // Grab user id from session
+      // Store the access token in the user table
 
       // Store the access_token in session (for demo purposes)
       access_token = exchangeResponse.data.access_token;
