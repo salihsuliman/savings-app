@@ -13,9 +13,11 @@
   "description": "",
   "dependencies": {
     "@supabase/supabase-js": "^2.47.10",
+    "connect-redis": "^8.0.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
+    "ioredis": "^5.4.2",
     "plaid": "^30.0.0"
   },
   "devDependencies": {

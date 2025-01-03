@@ -69,15 +69,19 @@ function handleTxnWebhook(code: string, requestBody: any) {
 async function handleLinkWebhook(code: string, requestBody: any) {
   switch (code) {
     case "SESSION_FINISHED":
-      await fetch("http://localhost:8080/api/exchange_public_token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          public_token: requestBody.public_tokens[0],
-        }),
-      }).catch((err) => {
+      console.log("sending public token to backend");
+      await fetch(
+        "https://4036-86-12-117-122.ngrok-free.app/api/exchange_public_token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            public_token: requestBody.public_tokens[0],
+          }),
+        }
+      ).catch((err) => {
         console.log(err);
       });
 

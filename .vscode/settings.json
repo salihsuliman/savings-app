@@ -1,6 +1,0 @@
-{
-  "deno.enable": true,
-  "deno.lint": true,
-  "deno.path": "/usr/local/bin/deno",
-  "deno.enablePaths": ["savings/supabase/functions"]
-}

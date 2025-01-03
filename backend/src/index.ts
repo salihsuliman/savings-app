@@ -4,17 +4,26 @@ import bodyParser from "body-parser";
 import session from "express-session";
 import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
 import { createClient } from "@supabase/supabase-js";
+import { Database } from "./database";
 
 // Load environment variables from a .env file
 dotenv.config();
 
 const app = express();
-const port = 8080;
+const port = process.env.PORT;
 
-const supabase = createClient(
+const supabase = createClient<Database>(
   process.env.TEST_SUPABASE_URL || "",
   process.env.TEST_SUPABASE_SERVICE_ROLE_KEY || ""
 );
+
+const devEnv = process.env.NODE_ENV === "development";
+
+declare module "express-session" {
+  interface SessionData {
+    token?: string;
+  }
+}
 
 // Session configuration
 app.use(session({ secret: "bosco", saveUninitialized: true, resave: true }));
@@ -39,16 +48,23 @@ const config = new Configuration({
 // Instantiate the Plaid client with the configuration
 const client = new PlaidApi(config);
 
+app.get("/", (req: Request, res: Response) => {
+  res.send("Hello World!");
+});
+
 // Route to create a Link token
-app.post(
+app.get(
   "/api/create_link_token",
   async (req: Request, res: Response, next: NextFunction) => {
     let payload: any = {};
 
-    console.log("creating link token!!!!!");
+    const token = req.headers.authorization?.split(" ")[1];
+    req.session.token = token;
+
+    console.log("token stored", req.session.token);
 
     // Payload if running on iOS
-    if (req.body.address === "localhost") {
+    if (devEnv) {
       payload = {
         user: { client_user_id: req.sessionID },
         client_name: "Savings Apps",
@@ -84,35 +100,51 @@ app.post(
       console.log(tokenResponse.data);
       res.json(tokenResponse.data);
     } catch (error) {
+      console.log("error", error);
       next(error);
     }
   }
 );
-
-let access_token = "";
 
 // Route to exchange public token for access token
 app.post(
   "/api/exchange_public_token",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      console.log("exchanging public token!!!!!");
+      console.log("exchanging public token");
       const exchangeResponse = await client.itemPublicTokenExchange({
         public_token: req.body.public_token,
       });
 
-      console.log("exchange details", {
-        exchangeResponse: exchangeResponse.data.access_token,
-        public_token: req.body.public_token,
+      console.log("req.session.token", req.session.token);
+
+      const { data, error: supaError } = await supabase.auth.getUser(
+        req.session.token
+      );
+
+      console.log(11111111, {
+        data,
+        supaError,
+        exchangeResponse,
       });
 
-      const session = await supabase.auth.getSession();
+      if (!data.user?.id) {
+        res
+          .status(400)
+          .json({ error: "User not logged in, or User not found" });
+        return;
+      }
 
-      // Grab user id from session
-      // Store the access token in the user table
+      const { error } = await supabase
+        .from("users")
+        .update({ access_token: exchangeResponse.data.access_token })
+        .eq("id", data.user?.id);
 
-      // Store the access_token in session (for demo purposes)
-      access_token = exchangeResponse.data.access_token;
+      if (error) {
+        res.status(400).json({ error: "Error updating access token" });
+        return;
+      }
+
       res.json(true);
     } catch (error) {
       next(error);
@@ -126,15 +158,31 @@ app.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     console.log("getting balance!!!!!");
 
-    console.log("request", req.session);
-
     try {
-      if (!access_token) {
-        res.status(400).json({ error: "Access token not available" });
+      const session = await supabase.auth.getSession();
+
+      const userId = session.data.session?.user.id;
+
+      if (!userId) {
+        res
+          .status(400)
+          .json({ error: "User not logged in, or User not found" });
+        return;
       }
+
+      const { data, error } = await supabase
+        .from("users")
+        .select("access_token")
+        .eq("id", userId);
+
+      if (error || !data[0] || !data[0].access_token) {
+        res.status(400).json({ error: "Error fetching access token" });
+        return;
+      }
+
       await client
         .transactionsGet({
-          access_token: access_token || "",
+          access_token: data[0].access_token,
           start_date: "2024-06-01",
           end_date: "2024-12-31",
         })
@@ -156,5 +204,4 @@ app.post(
 // Start the server
 app.listen(port, () => {
   console.log(`Backend server is running on port ${port}...`);
-  console.log("process.env.PLAID_WEBHOOK", process.env.PLAID_WEBHOOK);
 });

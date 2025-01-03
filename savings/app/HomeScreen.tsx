@@ -1,3 +1,4 @@
+import { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { StackNavigationProp } from "@react-navigation/stack";
 import React, { useCallback, useEffect, useState } from "react";
@@ -16,16 +17,6 @@ import {
   Alert,
   ToastAndroid,
 } from "react-native";
-
-import {
-  create,
-  open,
-  dismissLink,
-  LinkSuccess,
-  LinkExit,
-  LinkIOSPresentationStyle,
-  LinkLogLevel,
-} from "react-native-plaid-link-sdk";
 
 import { WebView } from "react-native-webview";
 
@@ -52,10 +43,11 @@ type HomeScreenNavigationProp = StackNavigationProp<
 >;
 
 interface HomeScreenProps {
+  session: Session;
   navigation: HomeScreenNavigationProp;
 }
 
-const HomeScreen = ({ navigation }: HomeScreenProps) => {
+const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isModalVisible, setModalVisible] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
@@ -80,83 +72,78 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     month: "long",
   })} ${currentMonth.getFullYear()}`;
 
-  console.log("create token", `${address}/create_link_token`);
+  console.log("url", `${address}/create_link_token`);
 
   const createLinkToken = useCallback(async () => {
+    console.log(1111);
     await fetch(`${address}/create_link_token`, {
-      method: "POST",
+      method: "GET",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ address: address }),
     })
       .then((response) => response.json())
       .then((data) => {
         console.log("set link token", data.hosted_link_url);
         setPlaidWebView(data.hosted_link_url);
         setLinkToken(data.link_token);
+        setAddBankModal(true);
       })
       .catch((err) => {
         console.log(err);
       });
   }, [setLinkToken]);
 
-  useEffect(() => {
-    if (linkToken == null) {
-      createLinkToken();
-    } else {
-      const tokenConfiguration = createLinkTokenConfiguration(linkToken);
-      create(tokenConfiguration);
-    }
-  }, [linkToken]);
+  // useEffect(() => {
+  //   if (linkToken == null) {
+  //     createLinkToken();
+  //   } else {
+  //     const tokenConfiguration = createLinkTokenConfiguration(linkToken);
+  //     create(tokenConfiguration);
+  //   }
+  // }, [linkToken]);
 
-  const createLinkTokenConfiguration = (
-    token: string,
-    noLoadingState: boolean = false
-  ) => {
-    return {
-      token: token,
-      noLoadingState: noLoadingState,
-    };
-  };
+  // const createLinkTokenConfiguration = (
+  //   token: string,
+  //   noLoadingState: boolean = false
+  // ) => {
+  //   return {
+  //     token: token,
+  //     noLoadingState: noLoadingState,
+  //   };
+  // };
 
-  const createLinkOpenProps = () => {
-    return {
-      onSuccess: async (success: LinkSuccess) => {
-        await fetch(`${address}/exchange_public_token`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ public_token: success.publicToken }),
-        })
-          .catch((err) => {
-            console.log(err);
-          })
-          .then(async () => {
-            await getBalance();
-          });
-      },
-      onExit: (linkExit: LinkExit) => {
-        console.log("Exit: ", linkExit);
-        dismissLink();
-      },
-      iOSPresentationStyle: LinkIOSPresentationStyle.MODAL,
-      logLevel: LinkLogLevel.ERROR,
-    };
-  };
+  // const createLinkOpenProps = () => {
+  //   return {
+  //     onSuccess: async (success: LinkSuccess) => {
+  //       await fetch(`${address}/exchange_public_token`, {
+  //         method: "POST",
+  //         headers: {
+  //           "Content-Type": "application/json",
+  //         },
+  //         body: JSON.stringify({ public_token: success.publicToken }),
+  //       })
+  //         .catch((err) => {
+  //           console.log(err);
+  //         })
+  //         .then(async () => {
+  //           await getBalance();
+  //         });
+  //     },
+  //     onExit: (linkExit: LinkExit) => {
+  //       console.log("Exit: ", linkExit);
+  //       dismissLink();
+  //     },
+  //     iOSPresentationStyle: LinkIOSPresentationStyle.MODAL,
+  //     logLevel: LinkLogLevel.ERROR,
+  //   };
+  // };
 
   console.log("token", linkToken);
 
-  const handleOpenLink = () => {
-    const openProps = createLinkOpenProps();
-    try {
-      console.log(open(openProps));
-      console.log(linkToken);
-      open(openProps);
-    } catch (error) {
-      console.log(error);
-    }
+  const handleOpenLink = async () => {
+    await createLinkToken();
   };
 
   // Fetch balance data
@@ -167,6 +154,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
         },
       });
       const data = await response.json();
@@ -174,7 +162,6 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
       setData(data.Balance);
     } catch (err) {
       console.log(err);
-      notifyMessage("Failed to fetch balance data");
     } finally {
       setLoading(false);
     }
@@ -260,13 +247,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
               horizontal
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.card}
-                  onPress={() => {
-                    setAddBankModal(true);
-                    console.log("plaidWebView", plaidWebView);
-                  }}
-                >
+                <TouchableOpacity style={styles.card} onPress={handleOpenLink}>
                   <Text style={styles.cardIcon}>{item.icon || "+"}</Text>
                   <Text style={styles.cardLabel}>{item.label}</Text>
                 </TouchableOpacity>
