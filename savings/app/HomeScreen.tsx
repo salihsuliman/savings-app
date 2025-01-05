@@ -16,6 +16,7 @@ import {
   ActivityIndicator,
   Alert,
   ToastAndroid,
+  StatusBar,
 } from "react-native";
 
 import { WebView } from "react-native-webview";
@@ -146,6 +147,22 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     await createLinkToken();
   };
 
+  const setToken = async () => {
+    try {
+      const response = await fetch(`${address}/set-tokens`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const data = await response.json();
+      console.log(data);
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
   // Fetch balance data
   const getBalance = useCallback(async () => {
     setLoading(true);
@@ -156,20 +173,33 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
+        body: JSON.stringify({
+          currentMonth,
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
       console.log("returned balance", data.Balance);
       setData(data.Balance);
     } catch (err) {
-      console.log(err);
+      console.error("Error fetching balance:", err);
     } finally {
       setLoading(false);
     }
-  }, [address]);
+  }, [currentMonth]); // Added dependencies to the useCallback dependency array
+
+  useEffect(() => {
+    setToken();
+    getBalance();
+  }, []);
 
   useEffect(() => {
     getBalance();
-  }, []);
+  }, [currentMonth]);
 
   const renderBankActivity = ({ item }: { item: any }) => (
     <View style={styles.transaction}>
@@ -273,12 +303,19 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
                 No transactions available
               </Text>
             ) : (
-              <FlatList
-                data={data}
-                keyExtractor={(item) => item.transaction_id}
-                renderItem={renderBankActivity}
-                contentContainerStyle={styles.bankActivityContainer}
-              />
+              // <FlatList
+              //   data={data}
+              //   keyExtractor={(item) => item.transaction_id}
+              //   renderItem={renderBankActivity}
+              //   contentContainerStyle={styles.bankActivityContainer}
+              // />
+              <SafeAreaView style={styles.container1}>
+                <FlatList
+                  data={data}
+                  renderItem={renderBankActivity}
+                  keyExtractor={(item) => item.id}
+                />
+              </SafeAreaView>
             )}
             {/* Modal for Adding a New Card */}
             <Modal visible={isModalVisible} animationType="fade" transparent>
@@ -303,6 +340,14 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
         </>
       )}
       <View style={styles.verticallySpaced}>
+        <Button
+          title="Get Balance"
+          onPress={async () => {
+            setAddBankModal(false);
+            await getBalance();
+          }}
+        />
+
         <Button
           title="Sign Out"
           onPress={async () => {
@@ -405,7 +450,7 @@ const styles = StyleSheet.create({
   },
   bankActivityContainer: {
     marginTop: 12,
-    paddingBottom: 24,
+    height: "100%",
   },
   transaction: {
     flexDirection: "row",
@@ -504,6 +549,18 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 4,
     alignSelf: "stretch",
+  },
+  container1: {
+    marginTop: StatusBar.currentHeight || 0,
+  },
+  item: {
+    backgroundColor: "#f9c2ff",
+    padding: 20,
+    marginVertical: 8,
+    marginHorizontal: 16,
+  },
+  title: {
+    fontSize: 32,
   },
 });
 

@@ -6,6 +6,7 @@ import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
 import { createClient } from "@supabase/supabase-js";
 import { Database } from "./database";
 import { createClient as createRedisClient } from "redis";
+import type { TransactionType } from "./types";
 
 import { RedisStore } from "connect-redis";
 
@@ -67,10 +68,34 @@ const config = new Configuration({
 // Instantiate the Plaid client with the configuration
 const client = new PlaidApi(config);
 
-app.get("/", (req: Request, res: Response) => {
+function getMonthRange(dateString: string) {
+  // Convert the input string to a Date object
+  const date = new Date(dateString);
+
+  // Get the first day of the month
+  const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
+
+  // Get the last day of the month
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+
+  // Format the dates to YYYY-MM-DD
+  const formatDate = (d: Date) => d.toISOString().split("T")[0];
+
+  return {
+    firstDay: formatDate(firstDay),
+    lastDay: formatDate(lastDay),
+  };
+}
+
+app.get("/api/set-tokens", async (req: Request, res: Response) => {
   try {
+    const loggedInUserToken =
+      req.headers.authorization?.split(" ")[1] || "no token found";
+
+    await redisClient.set("loggedInUserToken", loggedInUserToken);
+
     res.json({
-      message: "Yoooooo",
+      message: "Token has been set",
     });
   } catch (error) {
     console.error("Error fetching from Redis:", error);
@@ -83,11 +108,6 @@ app.get(
   "/api/create_link_token",
   async (req: Request, res: Response, next: NextFunction) => {
     let payload: any = {};
-
-    const loggedInUserToken =
-      req.headers.authorization?.split(" ")[1] || "no token found";
-
-    await redisClient.set("loggedInUserToken", loggedInUserToken);
 
     // Payload if running on iOS
     if (devEnv) {
@@ -123,7 +143,6 @@ app.get(
 
     try {
       const tokenResponse = await client.linkTokenCreate(payload);
-      console.log(tokenResponse.data);
       res.json(tokenResponse.data);
     } catch (error) {
       console.log("error", error);
@@ -155,16 +174,8 @@ app.post(
         loggedInUser
       );
 
-      console.log(11111111, {
-        data,
-        supaError,
-        exchangeResponse,
-      });
-
-      if (!data.user?.id) {
-        res
-          .status(400)
-          .json({ error: "User not logged in, or User not found" });
+      if (supaError) {
+        res.status(400).json(supaError);
         return;
       }
 
@@ -192,21 +203,30 @@ app.post(
     console.log("getting balance!!!!!");
 
     try {
-      const session = await supabase.auth.getSession();
+      const loggedInUser = await redisClient.get("loggedInUserToken");
+      const monthData: string = req.body.currentMonth;
+      const dates = getMonthRange(monthData);
 
-      const userId = session.data.session?.user.id;
-
-      if (!userId) {
+      if (!loggedInUser) {
         res
           .status(400)
-          .json({ error: "User not logged in, or User not found" });
+          .json({ error: "User not logged in, or User no user token found" });
+        return;
+      }
+
+      const { data: userData, error: supaError } = await supabase.auth.getUser(
+        loggedInUser
+      );
+
+      if (supaError) {
+        res.status(400).json(supaError);
         return;
       }
 
       const { data, error } = await supabase
         .from("users")
         .select("access_token")
-        .eq("id", userId);
+        .eq("id", userData.user.id);
 
       if (error || !data[0] || !data[0].access_token) {
         res.status(400).json({ error: "Error fetching access token" });
@@ -216,19 +236,94 @@ app.post(
       await client
         .transactionsGet({
           access_token: data[0].access_token,
-          start_date: "2024-06-01",
-          end_date: "2024-12-31",
+          start_date: dates.firstDay,
+          end_date: dates.lastDay,
+          options: {
+            count: 50,
+          },
         })
-        .then((response) => {
-          console.log("response", response.data.transactions);
+        .then(async (response) => {
+          const transactions = response.data.transactions || [];
+
+          // Extract transaction IDs to check for existing ones
+          const transactionIds = transactions.map(
+            (tran) => tran.transaction_id
+          );
+
+          // Query for existing transaction IDs
+          const { data: existingTransactions, error: existingError } =
+            await supabase
+              .from("transactions")
+              .select("*") // Select all fields to return existing transactions
+              .in("transaction_id", transactionIds);
+
+          if (existingError) {
+            res
+              .status(500)
+              .json({ error: "Error checking existing transactions" });
+            return;
+          }
+
+          // Filter out already existing transactions
+          const existingIds = new Set(
+            existingTransactions?.map((tran) => tran.transaction_id)
+          );
+
+          const newTransactions = transactions.filter(
+            (tran) => !existingIds.has(tran.transaction_id)
+          );
+
+          // Format the new transactions for insertion
+          const formattedTransaction: TransactionType[] = newTransactions.map(
+            (tran) => ({
+              user_id: userData.user.id,
+              bank_id: tran.account_id,
+              amount: tran.amount,
+              category: JSON.stringify(tran.category) || "",
+              category_id: tran.personal_finance_category?.detailed || "",
+              date: tran.date,
+              date_time: tran.datetime,
+              currency: tran.iso_currency_code,
+              merchant_name: tran.merchant_name || "none found",
+              name: tran.name,
+              transaction_code: tran.transaction_code,
+              transaction_id: tran.transaction_id,
+              transaction_type: tran.transaction_type || "none found",
+            })
+          );
+
+          if (formattedTransaction.length === 0) {
+            // Return the existing transactions if no new transactions found
+            res.json({
+              message: "No new transactions to insert.",
+              Balance: existingTransactions,
+            });
+            return;
+          }
+
+          // Insert only new transactions
+          const { error: insertError } = await supabase
+            .from("transactions")
+            .insert(formattedTransaction);
+
+          if (insertError) {
+            console.error(1111, insertError);
+            res.status(500).json(insertError);
+            return;
+          }
+
           res.json({
-            Balance: response.data.transactions,
+            Balance: formattedTransaction,
           });
+
+          return;
         })
         .catch((error) => {
-          console.log("error", error);
+          console.error("Error fetching transactions:", error);
+          res.status(500).json({ error: "Error fetching transactions" });
         });
     } catch (error) {
+      console.error(error);
       next(error);
     }
   }
