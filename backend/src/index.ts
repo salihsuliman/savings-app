@@ -5,6 +5,9 @@ import session from "express-session";
 import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
 import { createClient } from "@supabase/supabase-js";
 import { Database } from "./database";
+import { createClient as createRedisClient } from "redis";
+
+import { RedisStore } from "connect-redis";
 
 // Load environment variables from a .env file
 dotenv.config();
@@ -19,14 +22,30 @@ const supabase = createClient<Database>(
 
 const devEnv = process.env.NODE_ENV === "development";
 
-declare module "express-session" {
-  interface SessionData {
-    token?: string;
-  }
-}
+// Setup Redis and Session configuration
+// Initialize client.
+const redisClient = createRedisClient({
+  url: process.env.REDIS_URL || "redis://127.0.0.1:6379",
+});
+redisClient.connect().catch();
 
-// Session configuration
-app.use(session({ secret: "bosco", saveUninitialized: true, resave: true }));
+redisClient.on("error", (err) => console.log("Redis Client Error", err));
+
+// Initialize store.
+const redisStore = new RedisStore({
+  client: redisClient,
+  prefix: "savingsApp:",
+});
+
+// Initialize session storage.
+app.use(
+  session({
+    store: redisStore,
+    resave: false, // required: force lightweight session keep alive (touch)
+    saveUninitialized: false, // recommended: only save session when data exists
+    secret: "super-secret-saving",
+  })
+);
 
 // Middleware to parse request bodies
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -49,7 +68,14 @@ const config = new Configuration({
 const client = new PlaidApi(config);
 
 app.get("/", (req: Request, res: Response) => {
-  res.send("Hello World!");
+  try {
+    res.json({
+      message: "Yoooooo",
+    });
+  } catch (error) {
+    console.error("Error fetching from Redis:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 // Route to create a Link token
@@ -58,10 +84,10 @@ app.get(
   async (req: Request, res: Response, next: NextFunction) => {
     let payload: any = {};
 
-    const token = req.headers.authorization?.split(" ")[1];
-    req.session.token = token;
+    const loggedInUserToken =
+      req.headers.authorization?.split(" ")[1] || "no token found";
 
-    console.log("token stored", req.session.token);
+    await redisClient.set("loggedInUserToken", loggedInUserToken);
 
     // Payload if running on iOS
     if (devEnv) {
@@ -112,14 +138,21 @@ app.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       console.log("exchanging public token");
+      const loggedInUser = await redisClient.get("loggedInUserToken");
+
+      if (!loggedInUser) {
+        res
+          .status(400)
+          .json({ error: "User not logged in, or User no user token found" });
+        return;
+      }
+
       const exchangeResponse = await client.itemPublicTokenExchange({
         public_token: req.body.public_token,
       });
 
-      console.log("req.session.token", req.session.token);
-
       const { data, error: supaError } = await supabase.auth.getUser(
-        req.session.token
+        loggedInUser
       );
 
       console.log(11111111, {

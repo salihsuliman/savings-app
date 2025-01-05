@@ -70,18 +70,15 @@ async function handleLinkWebhook(code: string, requestBody: any) {
   switch (code) {
     case "SESSION_FINISHED":
       console.log("sending public token to backend");
-      await fetch(
-        "https://4036-86-12-117-122.ngrok-free.app/api/exchange_public_token",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            public_token: requestBody.public_tokens[0],
-          }),
-        }
-      ).catch((err) => {
+      await fetch(`${process.env.BACKEND_URL}/exchange_public_token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          public_token: requestBody.public_tokens[0],
+        }),
+      }).catch((err) => {
         console.log(err);
       });
 
