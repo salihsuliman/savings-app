@@ -11,6 +11,7 @@ import {
   Modal,
   TextInput,
   Button,
+  Image,
   Platform,
   SafeAreaView,
   ActivityIndicator,
@@ -18,9 +19,15 @@ import {
   ToastAndroid,
   StatusBar,
   ScrollView,
+  ImageBackground,
 } from "react-native";
+import Icon from "react-native-vector-icons/FontAwesome6";
 
 import { WebView } from "react-native-webview";
+import { Transaction } from "../lib/types";
+
+const addBank = require("../assets/images/add-card.png");
+const addPot = require("../assets/images/add-pot.png");
 
 const spendingPots = [
   { id: "1", label: "Add pot", icon: null },
@@ -50,13 +57,31 @@ interface HomeScreenProps {
   navigation: HomeScreenNavigationProp;
 }
 
+const transactionColours = [
+  "#1A1A1A",
+  "#0D47A1",
+  "#B71C1C",
+  "#1B5E20",
+  "#4A148C",
+  "#F57F17",
+  "#004D40",
+  "#263238",
+  "#880E4F",
+  "#3E2723",
+  "#303F9F",
+  "#FF6F00",
+  "#00796B",
+  "#212121",
+  "#6A1B9A",
+];
+
 const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isModalVisible, setModalVisible] = useState(false);
   const [plaidWebView, setPlaidWebView] = useState<string | null>(null);
   const [addBankModal, setAddBankModal] = useState(false);
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(true);
   const address =
     Platform.OS === "ios" ? process.env.EXPO_PUBLIC_BACKEND_URL : "10.0.2.2";
 
@@ -116,7 +141,7 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
 
   // Fetch balance data
   const getBalance = useCallback(async () => {
-    setLoading(true);
+    setLoadingTransactions(true);
     try {
       const response = await fetch(`${address}/balance`, {
         method: "POST",
@@ -134,12 +159,11 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
       }
 
       const data = await response.json();
-      console.log("returned balance", data.Balance);
-      setData(data.Balance);
+      setTransactions(data.Balance);
     } catch (err) {
       console.error("Error fetching balance:", err);
     } finally {
-      setLoading(false);
+      setLoadingTransactions(false);
     }
   }, [currentMonth]); // Added dependencies to the useCallback dependency array
 
@@ -152,61 +176,99 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     getBalance();
   }, [currentMonth]);
 
-  // const renderBankActivity = ({ item }: { item: any }) => (
-  //   <View style={styles.transaction}>
-  //     <View
-  //       style={[
-  //         styles.transactionIconContainer,
-  //         { backgroundColor: item.color },
-  //       ]}
-  //     >
-  //       <Text style={styles.transactionIcon}>{item.icon}</Text>
-  //     </View>
-  //     <View style={styles.transactionDetails}>
-  //       <Text style={styles.transactionTitle}>{item.name}</Text>
-  //       <Text style={styles.transactionAmount}>
-  //         {item.iso_currency_code} {item.amount}
-  //       </Text>
-  //       <Text style={styles.transactionDate}>{item.date}</Text>
-  //     </View>
-  //   </View>
-  // );
-
   return (
     <View style={styles.mainContainer}>
       <Text style={styles.title}>Spending pot</Text>
-      <View id="spending-pot" style={styles.spendingPot}></View>
+      <ScrollView id="bank-cards" style={styles.spendingPot} horizontal>
+        {Array.from({ length: 3 }).map((_, index) =>
+          index === 0 ? (
+            <TouchableOpacity
+              key={index}
+              style={{
+                ...styles.potContainer,
+                height: 110,
+              }}
+            >
+              <ImageBackground
+                key={index}
+                id="savingPot"
+                source={addPot}
+                imageStyle={{ borderRadius: 10 }}
+                style={styles.pot}
+              ></ImageBackground>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity key={index} style={styles.potContainer}>
+              <View key={index} id="savingPot" style={styles.pot}></View>
+
+              <Text style={{ fontSize: 18, marginTop: 8, fontWeight: 600 }}>
+                £100
+              </Text>
+            </TouchableOpacity>
+          )
+        )}
+      </ScrollView>
       <Text style={styles.title}>Bank activity</Text>
       <View id="bank-activities" style={styles.bankActivities}>
         <ScrollView id="bank-cards" style={styles.bankCards} horizontal>
-          {Array.from({ length: 12 }).map((_, index) => (
-            <TouchableOpacity key={index} id="bankCard" style={styles.bankCard}>
-              <Text></Text>
+          {Array.from({ length: 5 }).map((_, index) => (
+            <TouchableOpacity key={index}>
+              <ImageBackground
+                key={index}
+                id="bankCard"
+                imageStyle={{ borderRadius: 15 }}
+                source={index === 0 && addBank}
+                style={styles.bankCard}
+              ></ImageBackground>
             </TouchableOpacity>
           ))}
         </ScrollView>
         <View id="transaction-month" style={styles.transactionMonth}>
           <TouchableOpacity onPress={() => changeMonth(-1)}>
-            <Text style={styles.calendarArrow}>{"<"}</Text>
+            <Icon name="chevron-left" size={30} />
           </TouchableOpacity>
           <Text style={styles.calendarMonth}>{formattedMonthYear}</Text>
           <TouchableOpacity onPress={() => changeMonth(1)}>
-            <Text style={styles.calendarArrow}>{">"}</Text>
+            <Icon name="chevron-right" size={30} />
           </TouchableOpacity>
         </View>
-        <View id="transaction" style={styles.transactions}></View>
+        <ScrollView
+          id="transaction"
+          style={styles.transactions}
+          horizontal={false}
+        >
+          {loadingTransactions ? (
+            <ActivityIndicator size="large" />
+          ) : (
+            transactions.map((trans, index) => (
+              <TouchableOpacity
+                key={index}
+                id="bankCard"
+                style={styles.bankTransaction}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <View
+                    style={{
+                      ...styles.bankTransactionIcon,
+                      backgroundColor:
+                        transactionColours[
+                          Math.floor(Math.random() * transactionColours.length)
+                        ],
+                    }}
+                  ></View>
+                  <Text style={styles.bankTransactionName}>{trans.name}</Text>
+                </View>
+                <Text
+                  style={styles.bankTransactionAmount}
+                >{`- £${trans.amount}`}</Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
       </View>
     </View>
   );
 };
-
-// function notifyMessage(msg: string) {
-//   if (Platform.OS === "android") {
-//     ToastAndroid.show(msg, ToastAndroid.SHORT);
-//   } else {
-//     Alert.alert(msg);
-//   }
-// }
 
 const styles = StyleSheet.create({
   mainContainer: {
@@ -215,37 +277,20 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "android" ? 24 : 45, // Extra padding for Android devices
   },
   spendingPot: {
-    flex: 1,
-    margin: 10,
-    backgroundColor: "white",
-    borderRadius: 50,
-  },
-  bankActivities: {
-    flex: 3,
-    marginBottom: 0,
-    borderRadius: 50,
-    backgroundColor: "white",
-  },
-  title: {
-    fontSize: 40,
-    color: "white",
-    fontWeight: "600",
-    textAlign: "center",
-    marginVertical: 10,
-  },
-  bankCards: {
-    marginTop: 10,
-    marginBottom: 10,
-    marginHorizontal: 30,
     flexGrow: 0,
+    paddingVertical: 5,
+    paddingHorizontal: 30,
     backgroundColor: "white",
+    marginHorizontal: 10,
+    borderRadius: 50,
   },
-  bankCard: {
-    height: 50,
-    width: 80,
+  pot: {
+    height: 90,
+    width: 70,
+    flexDirection: "row",
     color: "black",
     borderRadius: 10,
-    backgroundColor: "#d3d3d3",
+    backgroundColor: "#d9d9d9",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -253,11 +298,52 @@ const styles = StyleSheet.create({
     elevation: 5, // For Android shadow
     margin: 5,
   },
+
+  potContainer: {
+    alignItems: "center",
+  },
+
+  bankActivities: {
+    flex: 5,
+    marginBottom: 0,
+    borderRadius: 50,
+    backgroundColor: "white",
+  },
+  title: {
+    fontSize: 40,
+    color: "white",
+    fontWeight: 700,
+    textAlign: "center",
+    marginVertical: 20,
+  },
+  bankCards: {
+    marginTop: 5,
+    marginHorizontal: 30,
+    flexGrow: 0,
+    height: 70,
+    borderRadius: 10,
+  },
+  bankCard: {
+    height: 40,
+    width: 75,
+    color: "black",
+    borderRadius: 10,
+    backgroundColor: "#d9d9d9",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 5 }, // Adjust height to create bottom shadow
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 5, // For Android shadow
+    margin: 5,
+  },
   transactionMonth: {
-    flex: 1,
-    margin: 10,
+    flexGrow: 0,
+    marginTop: 10,
+    margin: 5,
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "white",
   },
   calendarArrow: {
     fontSize: 18,
@@ -265,13 +351,45 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   calendarMonth: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "bold",
     color: "#333",
   },
   transactions: {
-    flex: 12,
-    backgroundColor: "black",
+    borderRadius: 30,
+    marginBottom: 20,
+  },
+  bankTransaction: {
+    height: 70,
+    marginHorizontal: 5,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 5,
+    color: "black",
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5, // For Android shadow
+    margin: 5,
+  },
+
+  bankTransactionIcon: {
+    height: 50,
+    width: 50,
+    borderRadius: 10,
+    marginRight: 15,
+  },
+  bankTransactionName: {
+    fontSize: 17,
+    fontWeight: 600,
+  },
+  bankTransactionAmount: {
+    fontSize: 17,
+    fontWeight: 600,
+    color: "red",
   },
 });
 
