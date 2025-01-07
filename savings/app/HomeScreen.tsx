@@ -20,10 +20,13 @@ import {
   StatusBar,
   ScrollView,
   ImageBackground,
+  RefreshControl,
 } from "react-native";
 import Icon from "react-native-vector-icons/FontAwesome6";
 
 import { WebView } from "react-native-webview";
+import { Picker } from "@react-native-picker/picker";
+
 import { Transaction } from "../lib/types";
 
 const addBank = require("../assets/images/add-card.png");
@@ -80,8 +83,13 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
   const [isModalVisible, setModalVisible] = useState(false);
   const [plaidWebView, setPlaidWebView] = useState<string | null>(null);
   const [addBankModal, setAddBankModal] = useState(false);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[] | null>(null);
   const [loadingTransactions, setLoadingTransactions] = useState(true);
+  const [pots, setPots] = useState(spendingPots);
+  const [newPotName, setNewPotName] = useState("");
+  const [newPotAmount, setNewPotAmount] = useState("");
+  const [newPotColor, setNewPotColor] = useState(transactionColours[0]);
+
   const address =
     Platform.OS === "ios" ? process.env.EXPO_PUBLIC_BACKEND_URL : "10.0.2.2";
 
@@ -161,11 +169,32 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
       const data = await response.json();
       setTransactions(data.Balance);
     } catch (err) {
-      console.error("Error fetching balance:", err);
+      setTransactions([]);
+      console.log("Error fetching balance:", err);
     } finally {
       setLoadingTransactions(false);
     }
   }, [currentMonth]); // Added dependencies to the useCallback dependency array
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    navigation.navigate("Login");
+  };
+
+  const addNewPot = () => {
+    const newPot = {
+      id: (pots.length + 1).toString(),
+      label: newPotName,
+      amount: newPotAmount,
+      color: newPotColor,
+      icon: "",
+    };
+    setPots([...pots, newPot]);
+    setModalVisible(false);
+    setNewPotName("");
+    setNewPotAmount("");
+    setNewPotColor(transactionColours[0]);
+  };
 
   useEffect(() => {
     setToken();
@@ -176,43 +205,60 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     getBalance();
   }, [currentMonth]);
 
-  return (
+  return addBankModal ? (
+    <SafeAreaView style={{ flex: 1 }}>
+      <WebView
+        source={{
+          uri: plaidWebView || "",
+        }}
+        style={styles.webview}
+      />
+      <Button
+        title="Close"
+        onPress={async () => {
+          setAddBankModal(false);
+          await getBalance();
+        }}
+      />
+    </SafeAreaView>
+  ) : (
     <View style={styles.mainContainer}>
-      <Text style={styles.title}>Spending pot</Text>
+      <View style={styles.firstTitleSection}>
+        <Text style={styles.title}>Spending pot</Text>
+        <TouchableOpacity style={styles.logout} onPress={logout}>
+          <Icon name="right-from-bracket" size={30} color={"#3629B7"} />
+        </TouchableOpacity>
+      </View>
       <ScrollView id="bank-cards" style={styles.spendingPot} horizontal>
-        {Array.from({ length: 3 }).map((_, index) =>
-          index === 0 ? (
-            <TouchableOpacity
-              key={index}
-              style={{
-                ...styles.potContainer,
-                height: 110,
-              }}
-            >
-              <ImageBackground
-                key={index}
-                id="savingPot"
-                source={addPot}
-                imageStyle={{ borderRadius: 10 }}
-                style={styles.pot}
-              ></ImageBackground>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity key={index} style={styles.potContainer}>
-              <View key={index} id="savingPot" style={styles.pot}></View>
-
-              <Text style={{ fontSize: 18, marginTop: 8, fontWeight: 600 }}>
-                £100
+        {pots.map((pot, index) => (
+          <TouchableOpacity
+            key={index}
+            style={{
+              ...styles.potContainer,
+              height: 110,
+              backgroundColor: pot.color,
+            }}
+            onPress={() => pot.id === "1" && setModalVisible(true)}
+          >
+            <View key={index} id="savingPot" style={styles.pot}>
+              <Text style={{ fontSize: 18, marginTop: 8, fontWeight: "600" }}>
+                {pot.label}
               </Text>
-            </TouchableOpacity>
-          )
-        )}
+              <Text style={{ fontSize: 18, marginTop: 8, fontWeight: "600" }}>
+                {pot.amount}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ))}
       </ScrollView>
       <Text style={styles.title}>Bank activity</Text>
       <View id="bank-activities" style={styles.bankActivities}>
         <ScrollView id="bank-cards" style={styles.bankCards} horizontal>
           {Array.from({ length: 5 }).map((_, index) => (
-            <TouchableOpacity key={index}>
+            <TouchableOpacity
+              key={index}
+              onPress={index === 0 ? handleOpenLink : () => {}}
+            >
               <ImageBackground
                 key={index}
                 id="bankCard"
@@ -236,8 +282,14 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
           id="transaction"
           style={styles.transactions}
           horizontal={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={loadingTransactions}
+              onRefresh={getBalance}
+            />
+          }
         >
-          {loadingTransactions ? (
+          {!transactions || loadingTransactions ? (
             <ActivityIndicator size="large" />
           ) : (
             transactions.map((trans, index) => (
@@ -266,15 +318,68 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
           )}
         </ScrollView>
       </View>
+
+      <Modal visible={isModalVisible} animationType="slide">
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Add New Pot</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Pot Name"
+            value={newPotName}
+            onChangeText={setNewPotName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Pot Amount"
+            value={newPotAmount}
+            onChangeText={setNewPotAmount}
+            keyboardType="numeric"
+          />
+          <Picker
+            selectedValue={newPotColor}
+            style={styles.picker}
+            onValueChange={(itemValue) => setNewPotColor(itemValue)}
+          >
+            {transactionColours.map((color, index) => (
+              <Picker.Item key={index} label={color} value={color} />
+            ))}
+          </Picker>
+          <View style={styles.modalButtons}>
+            <Button title="Cancel" onPress={() => setModalVisible(false)} />
+            <Button title="Add Pot" onPress={addNewPot} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
-
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
     backgroundColor: "#3629B7", // Match your container background
     paddingTop: Platform.OS === "android" ? 24 : 45, // Extra padding for Android devices
+  },
+
+  title: {
+    fontSize: 40,
+    color: "white",
+    fontWeight: 700,
+    textAlign: "center",
+    marginVertical: 20,
+  },
+  firstTitleSection: {
+    flexDirection: "row",
+    justifyContent: "space-evenly",
+    alignItems: "center",
+  },
+  logout: {
+    backgroundColor: "white",
+    height: 50,
+    width: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 20,
   },
   spendingPot: {
     flexGrow: 0,
@@ -309,13 +414,7 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     backgroundColor: "white",
   },
-  title: {
-    fontSize: 40,
-    color: "white",
-    fontWeight: 700,
-    textAlign: "center",
-    marginVertical: 20,
-  },
+
   bankCards: {
     marginTop: 5,
     marginHorizontal: 30,
@@ -390,6 +489,40 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: 600,
     color: "red",
+  },
+  webview: {
+    flexGrow: 1,
+    width: "100%",
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "white",
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    marginBottom: 20,
+  },
+  input: {
+    width: "80%",
+    height: 40,
+    borderColor: "gray",
+    borderWidth: 1,
+    marginBottom: 20,
+    paddingHorizontal: 10,
+  },
+  picker: {
+    width: "80%",
+    height: 40,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "80%",
   },
 });
 
