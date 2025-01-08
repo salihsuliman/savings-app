@@ -7,35 +7,36 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  FlatList,
-  Modal,
   TextInput,
   Button,
-  Image,
   Platform,
   SafeAreaView,
   ActivityIndicator,
-  Alert,
-  ToastAndroid,
-  StatusBar,
   ScrollView,
   ImageBackground,
   RefreshControl,
+  Dimensions,
+  Alert,
 } from "react-native";
+import Modal from "react-native-modal";
 import Icon from "react-native-vector-icons/FontAwesome6";
-
 import { WebView } from "react-native-webview";
 import { Picker } from "@react-native-picker/picker";
-
 import { Transaction } from "../lib/types";
+import { scaleDown } from "../utils/scaleDownPixels";
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// based on iphone 5s's scale
+const scale = SCREEN_WIDTH / 320;
 
 const addBank = require("../assets/images/add-card.png");
 const addPot = require("../assets/images/add-pot.png");
 
 const spendingPots = [
-  { id: "1", label: "Add pot", icon: null },
-  { id: "2", label: "Groceries", amount: "£280", icon: "🛒", color: "#4CAF50" },
-  { id: "3", label: "Dining", amount: "-£15", icon: "🍴", color: "#E57373" },
+  { id: "1", label: "Add pot", amount: "0", icon: "", color: "" },
+  { id: "2", label: "Groceries", amount: "£280", icon: "🛒", color: "#1B5E20" },
+  { id: "3", label: "Dining", amount: "-£15", icon: "🍴", color: "#B71C1C" },
 ];
 
 const bankCards = [
@@ -60,22 +61,22 @@ interface HomeScreenProps {
   navigation: HomeScreenNavigationProp;
 }
 
-const transactionColours = [
-  "#1A1A1A",
-  "#0D47A1",
-  "#B71C1C",
-  "#1B5E20",
-  "#4A148C",
-  "#F57F17",
-  "#004D40",
-  "#263238",
-  "#880E4F",
-  "#3E2723",
-  "#303F9F",
-  "#FF6F00",
-  "#00796B",
-  "#212121",
-  "#6A1B9A",
+const colorOptions = [
+  { name: "Black", code: "#1A1A1A" },
+  { name: "Blue", code: "#0D47A1" },
+  { name: "Red", code: "#B71C1C" },
+  { name: "Green", code: "#1B5E20" },
+  { name: "Purple", code: "#4A148C" },
+  { name: "Orange", code: "#F57F17" },
+  { name: "Teal", code: "#004D40" },
+  { name: "Gray", code: "#263238" },
+  { name: "Pink", code: "#880E4F" },
+  { name: "Brown", code: "#3E2723" },
+  { name: "Indigo", code: "#303F9F" },
+  { name: "Amber", code: "#FF6F00" },
+  { name: "Cyan", code: "#00796B" },
+  { name: "Dark Gray", code: "#212121" },
+  { name: "Deep Purple", code: "#6A1B9A" },
 ];
 
 const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
@@ -88,7 +89,8 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
   const [pots, setPots] = useState(spendingPots);
   const [newPotName, setNewPotName] = useState("");
   const [newPotAmount, setNewPotAmount] = useState("");
-  const [newPotColor, setNewPotColor] = useState(transactionColours[0]);
+  const [newPotColor, setNewPotColor] = useState(colorOptions[0].code);
+  const [editingPotIndex, setEditingPotIndex] = useState<number | null>(null);
 
   const address =
     Platform.OS === "ios" ? process.env.EXPO_PUBLIC_BACKEND_URL : "10.0.2.2";
@@ -108,7 +110,6 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
   })} ${currentMonth.getFullYear()}`;
 
   const createLinkToken = useCallback(async () => {
-    console.log(1111);
     await fetch(`${address}/create_link_token`, {
       method: "GET",
       headers: {
@@ -118,7 +119,6 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     })
       .then((response) => response.json())
       .then((data) => {
-        console.log("set link token", data.hosted_link_url);
         setPlaidWebView(data.hosted_link_url);
         setAddBankModal(true);
       })
@@ -141,7 +141,6 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
         },
       });
       const data = await response.json();
-      console.log(data);
     } catch (err) {
       console.log(err);
     }
@@ -181,19 +180,66 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     navigation.navigate("Login");
   };
 
-  const addNewPot = () => {
-    const newPot = {
-      id: (pots.length + 1).toString(),
-      label: newPotName,
-      amount: newPotAmount,
-      color: newPotColor,
-      icon: "",
-    };
-    setPots([...pots, newPot]);
+  const addOrUpdatePot = () => {
+    if (!newPotName || !newPotAmount) {
+      Alert.alert(
+        "Validation Error",
+        "Please fill in both the pot name and amount."
+      );
+      return;
+    }
+
+    if (editingPotIndex !== null) {
+      // Update existing pot
+      const updatedPots = [...pots];
+      updatedPots[editingPotIndex] = {
+        ...updatedPots[editingPotIndex],
+        label: newPotName,
+        amount: newPotAmount,
+        color: newPotColor,
+      };
+      setPots(updatedPots);
+    } else {
+      // Add new pot
+      const newPot = {
+        id: (pots.length + 1).toString(),
+        label: newPotName,
+        amount: newPotAmount,
+        color: newPotColor,
+        icon: "",
+      };
+      setPots([...pots, newPot]);
+    }
     setModalVisible(false);
+    resetModal();
+  };
+
+  const deletePot = () => {
+    if (editingPotIndex !== null) {
+      const updatedPots = pots.filter((_, index) => index !== editingPotIndex);
+      setPots(updatedPots);
+      setModalVisible(false);
+      resetModal();
+    }
+  };
+
+  const openEditModal = (index: number) => {
+    const pot = pots[index];
+
+    if (pot) {
+      setNewPotName(pot.label);
+      setNewPotAmount(pot.amount);
+      setNewPotColor(pot.color);
+      setEditingPotIndex(index);
+      setModalVisible(true);
+    }
+  };
+
+  const resetModal = () => {
     setNewPotName("");
     setNewPotAmount("");
-    setNewPotColor(transactionColours[0]);
+    setNewPotColor(colorOptions[0].code);
+    setEditingPotIndex(null);
   };
 
   useEffect(() => {
@@ -229,27 +275,57 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
           <Icon name="right-from-bracket" size={30} color={"#3629B7"} />
         </TouchableOpacity>
       </View>
-      <ScrollView id="bank-cards" style={styles.spendingPot} horizontal>
-        {pots.map((pot, index) => (
-          <TouchableOpacity
-            key={index}
-            style={{
-              ...styles.potContainer,
-              height: 110,
-              backgroundColor: pot.color,
-            }}
-            onPress={() => pot.id === "1" && setModalVisible(true)}
-          >
-            <View key={index} id="savingPot" style={styles.pot}>
-              <Text style={{ fontSize: 18, marginTop: 8, fontWeight: "600" }}>
-                {pot.label}
-              </Text>
+      <ScrollView id="spending-pots" style={styles.spendingPot} horizontal>
+        {pots.map((pot, index) =>
+          index === 0 ? (
+            <TouchableOpacity
+              key={index}
+              style={{
+                ...styles.potContainer,
+              }}
+              onPress={() => setModalVisible(true)}
+            >
+              <ImageBackground
+                key={index}
+                id="savingPot"
+                style={styles.pot}
+                imageStyle={{
+                  borderRadius: 10,
+                }}
+                source={addPot}
+              ></ImageBackground>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              key={index}
+              style={{
+                ...styles.potContainer,
+              }}
+              onPress={() => openEditModal(index)}
+            >
+              <View
+                key={index}
+                id="savingPot"
+                style={{ ...styles.pot, backgroundColor: pot.color }}
+              >
+                <Text
+                  style={{
+                    fontSize: scaleDown(10, scale),
+                    fontWeight: "700",
+                    padding: 5,
+                    color: "white",
+                  }}
+                >
+                  {pot.label}
+                </Text>
+              </View>
+
               <Text style={{ fontSize: 18, marginTop: 8, fontWeight: "600" }}>
                 {pot.amount}
               </Text>
-            </View>
-          </TouchableOpacity>
-        ))}
+            </TouchableOpacity>
+          )
+        )}
       </ScrollView>
       <Text style={styles.title}>Bank activity</Text>
       <View id="bank-activities" style={styles.bankActivities}>
@@ -303,9 +379,9 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
                     style={{
                       ...styles.bankTransactionIcon,
                       backgroundColor:
-                        transactionColours[
-                          Math.floor(Math.random() * transactionColours.length)
-                        ],
+                        colorOptions[
+                          Math.floor(Math.random() * colorOptions.length)
+                        ].code,
                     }}
                   ></View>
                   <Text style={styles.bankTransactionName}>{trans.name}</Text>
@@ -318,41 +394,82 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
           )}
         </ScrollView>
       </View>
-
-      <Modal visible={isModalVisible} animationType="slide">
+      <Modal isVisible={isModalVisible}>
         <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>Add New Pot</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Pot Name"
-            value={newPotName}
-            onChangeText={setNewPotName}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Pot Amount"
-            value={newPotAmount}
-            onChangeText={setNewPotAmount}
-            keyboardType="numeric"
-          />
-          <Picker
-            selectedValue={newPotColor}
-            style={styles.picker}
-            onValueChange={(itemValue) => setNewPotColor(itemValue)}
-          >
-            {transactionColours.map((color, index) => (
-              <Picker.Item key={index} label={color} value={color} />
-            ))}
-          </Picker>
+          <Text style={styles.modalTitle}>
+            {editingPotIndex !== null ? "Edit Pot" : "Add New Pot"}
+          </Text>
+          <View style={styles.textFieldContainer}>
+            <Text style={styles.textFieldTitle}>Pot name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Pot Name"
+              value={newPotName}
+              onChangeText={setNewPotName}
+            />
+          </View>
+          <View style={styles.textFieldContainer}>
+            <Text style={styles.textFieldTitle}>Pot amount</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Pot Amount"
+              value={newPotAmount}
+              onChangeText={setNewPotAmount}
+              keyboardType="numeric"
+            />
+          </View>
+          <View style={styles.colorPickerContainer}>
+            <Picker
+              selectedValue={newPotColor}
+              style={styles.picker}
+              onValueChange={(itemValue) => setNewPotColor(itemValue)}
+            >
+              {colorOptions.map((color, index) => (
+                <Picker.Item
+                  key={index}
+                  label={color.name}
+                  value={color.code}
+                />
+              ))}
+            </Picker>
+            <View
+              style={[styles.colorPreview, { backgroundColor: newPotColor }]}
+            />
+          </View>
           <View style={styles.modalButtons}>
-            <Button title="Cancel" onPress={() => setModalVisible(false)} />
-            <Button title="Add Pot" onPress={addNewPot} />
+            {editingPotIndex !== null && (
+              <TouchableOpacity
+                style={[styles.button, styles.cancelButton]}
+                onPress={deletePot}
+              >
+                <Text style={styles.buttonText}>Delete Pot</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.button, styles.cancelButton]}
+              onPress={() => {
+                setModalVisible(false);
+                resetModal();
+              }}
+            >
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, styles.addButton]}
+              onPress={addOrUpdatePot}
+            >
+              <Text style={styles.buttonText}>
+                {editingPotIndex !== null ? "Update Pot" : "Add Pot"}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
     </View>
   );
 };
+
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
@@ -393,6 +510,8 @@ const styles = StyleSheet.create({
     height: 90,
     width: 70,
     flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
     color: "black",
     borderRadius: 10,
     backgroundColor: "#d9d9d9",
@@ -495,11 +614,12 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   modalContainer: {
-    flex: 1,
-    justifyContent: "center",
+    flexGrow: 0,
+    justifyContent: "space-evenly",
     alignItems: "center",
     backgroundColor: "white",
     padding: 20,
+    borderRadius: 30,
   },
   modalTitle: {
     fontSize: 24,
@@ -507,22 +627,60 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   input: {
-    width: "80%",
-    height: 40,
+    width: "100%",
+    height: 60,
     borderColor: "gray",
     borderWidth: 1,
-    marginBottom: 20,
     paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+  textFieldContainer: {
+    width: "100%",
+    marginBottom: 20,
+  },
+
+  textFieldTitle: {
+    fontSize: 18,
+    fontWeight: 400,
+    marginBottom: 10,
+  },
+
+  colorPickerContainer: {
+    flexDirection: "row",
+    justifyContent: "space-evenly",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 20,
   },
   picker: {
-    width: "80%",
-    height: 40,
-    marginBottom: 20,
+    width: "60%",
+    height: "100%",
+  },
+  colorPreview: {
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    marginLeft: 10,
   },
   modalButtons: {
     flexDirection: "row",
     justifyContent: "space-between",
-    width: "80%",
+  },
+  button: {
+    borderRadius: 5,
+    padding: 10,
+    margin: 5,
+    alignItems: "center",
+  },
+  cancelButton: {
+    backgroundColor: "#d9534f",
+  },
+  addButton: {
+    backgroundColor: "#5cb85c",
+  },
+  buttonText: {
+    color: "white",
+    fontWeight: "bold",
   },
 });
 

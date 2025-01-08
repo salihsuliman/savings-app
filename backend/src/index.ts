@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import express, { Request, Response, NextFunction } from "express";
 import bodyParser from "body-parser";
 import session from "express-session";
-import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
+import { Configuration, CountryCode, PlaidApi, PlaidEnvironments } from "plaid";
 import { createClient } from "@supabase/supabase-js";
 import { Database } from "./database";
 import { createClient as createRedisClient } from "redis";
@@ -157,40 +157,19 @@ app.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       console.log("exchanging public token");
-      const loggedInUser = await redisClient.get("loggedInUserToken");
-
-      if (!loggedInUser) {
-        res
-          .status(400)
-          .json({ error: "User not logged in, or User no user token found" });
-        return;
-      }
 
       const exchangeResponse = await client.itemPublicTokenExchange({
         public_token: req.body.public_token,
       });
 
-      const { data, error: supaError } = await supabase.auth.getUser(
-        loggedInUser
+      await populateBankName(
+        exchangeResponse.data.item_id,
+        exchangeResponse.data.access_token
       );
-
-      if (supaError) {
-        res.status(400).json(supaError);
-        return;
-      }
-
-      const { error } = await supabase
-        .from("users")
-        .update({ access_token: exchangeResponse.data.access_token })
-        .eq("id", data.user?.id);
-
-      if (error) {
-        res.status(400).json({ error: "Error updating access token" });
-        return;
-      }
 
       res.json(true);
     } catch (error) {
+      console.log("Exchange error", error);
       next(error);
     }
   }
@@ -319,15 +298,74 @@ app.post(
           return;
         })
         .catch((error) => {
-          console.error("Error fetching transactions:", error);
+          console.log("Error fetching transactions:", error);
           res.status(500).json({ error: "Error fetching transactions" });
         });
     } catch (error) {
-      console.error(error);
+      console.log(error);
       next(error);
     }
   }
 );
+
+const populateBankName = async (itemId: string, accessToken: string) => {
+  try {
+    const loggedInUser = await redisClient.get("loggedInUserToken");
+
+    if (!loggedInUser) {
+      throw new Error("User not logged in, or User no user token found");
+    }
+
+    const itemResponse = await client.itemGet({
+      access_token: accessToken,
+    });
+    const institutionId = itemResponse.data.item.institution_id;
+    if (institutionId == null) {
+      return;
+    }
+    const institutionResponse = await client.institutionsGetById({
+      institution_id: institutionId,
+      country_codes: [
+        CountryCode.Us,
+        CountryCode.Ca,
+        CountryCode.Es,
+        CountryCode.Fr,
+        CountryCode.Gb,
+        CountryCode.Ie,
+        CountryCode.Nl,
+      ],
+    });
+    const institutionName = institutionResponse.data.institution.name;
+
+    const { data: userData, error: supaError } = await supabase.auth.getUser(
+      loggedInUser
+    );
+
+    if (supaError) {
+      throw new Error(supaError.name, {
+        cause: supaError.message,
+      });
+      return;
+    }
+
+    const { error } = await supabase.from("bank_accounts").insert({
+      access_token: accessToken,
+      bank_name: institutionName,
+      item_id: itemId,
+      user_id: userData.user?.id,
+    });
+
+    if (error) {
+      throw new Error(error.name, {
+        cause: error.message,
+      });
+    }
+
+    console.log("Bank account added to database");
+  } catch (error) {
+    console.log(`Ran into an error! ${error}`);
+  }
+};
 
 // Start the server
 app.listen(port, () => {

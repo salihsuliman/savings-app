@@ -73,7 +73,7 @@ async function handleLinkWebhook(code: string, requestBody: any) {
       await fetch(`${process.env.BACKEND_URL}/exchange_public_token`, {
         method: "POST",
         headers: {
-          "Content-Type": "applicationxs/json",
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           public_token: requestBody.public_tokens[0],
