@@ -89,10 +89,13 @@ function getMonthRange(dateString: string) {
 
 app.get("/api/set-tokens", async (req: Request, res: Response) => {
   try {
+    console.log("setting tokens");
     const loggedInUserToken =
       req.headers.authorization?.split(" ")[1] || "no token found";
 
     await redisClient.set("loggedInUserToken", loggedInUserToken);
+
+    console.log("token has been set");
 
     res.json({
       message: "Token has been set",
@@ -100,6 +103,50 @@ app.get("/api/set-tokens", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error fetching from Redis:", error);
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/api/get-banks", async (_, res: Response, next: NextFunction) => {
+  try {
+    const {
+      user,
+      noLoggedInUser,
+      supaError: fetchUserError,
+    } = await fetchUser();
+
+    if (!user || noLoggedInUser || fetchUserError) {
+      res.status(400).json({
+        user,
+        noLoggedInUser,
+        fetchUserError,
+      });
+
+      console.log("Error fetching user", {
+        user,
+        noLoggedInUser,
+        fetchUserError,
+      });
+      return;
+    }
+
+    const { data: bankCards, error: supaError } = await supabase
+      .from("bank_accounts")
+      .select()
+      .eq("user_id", user!.id);
+
+    if (supaError) {
+      res.status(400).json(supaError);
+      console.log("error fetching bank accounts", supaError);
+      return;
+    }
+
+    res.json(bankCards);
+
+    return;
+  } catch (error) {
+    res.status(400).json(error);
+    console.log(error);
+    next(error);
   }
 });
 
@@ -187,6 +234,7 @@ app.post(
       const dates = getMonthRange(monthData);
 
       if (!loggedInUser) {
+        console.log("no logged in user");
         res
           .status(400)
           .json({ error: "User not logged in, or User no user token found" });
@@ -198,6 +246,7 @@ app.post(
       );
 
       if (supaError) {
+        console.log(supaError);
         res.status(400).json(supaError);
         return;
       }
@@ -365,6 +414,27 @@ const populateBankName = async (itemId: string, accessToken: string) => {
   } catch (error) {
     console.log(`Ran into an error! ${error}`);
   }
+};
+
+const fetchUser = async () => {
+  const loggedInUser = await redisClient.get("loggedInUserToken");
+
+  let noLoggedInUser = null;
+  let user = null;
+  let supaError = null;
+
+  if (!loggedInUser) {
+    console.log("no logged in user");
+    return { noLoggedInUser: "true", user, supaError };
+  }
+
+  const { data: userData, error } = await supabase.auth.getUser(loggedInUser);
+
+  if (error) {
+    return { user, supaError: error, noLoggedInUser };
+  }
+
+  return { noLoggedInUser, user: userData.user, supaError };
 };
 
 // Start the server

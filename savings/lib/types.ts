@@ -13,3 +13,12 @@ export type Transaction = {
   transaction_id: string;
   transaction_type: string;
 };
+
+export type BankAccount = {
+  id: string;
+  created_at: string;
+  access_token: string;
+  bank_name: string;
+  item_id: string;
+  user_id: string;
+};

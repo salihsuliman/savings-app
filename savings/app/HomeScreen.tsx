@@ -22,10 +22,11 @@ import Modal from "react-native-modal";
 import Icon from "react-native-vector-icons/FontAwesome6";
 import { WebView } from "react-native-webview";
 import { Picker } from "@react-native-picker/picker";
-import { Transaction } from "../lib/types";
+import { BankAccount, Transaction } from "../lib/types";
 import { scaleDown } from "../utils/scaleDownPixels";
+import { getCardImage } from "../utils/getBankImages";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 // based on iphone 5s's scale
 const scale = SCREEN_WIDTH / 320;
@@ -85,6 +86,10 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
   const [plaidWebView, setPlaidWebView] = useState<string | null>(null);
   const [addBankModal, setAddBankModal] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[] | null>(null);
+  const [bankCards, setBankCards] = useState<BankAccount[]>([]);
+  const [loadingBankCards, setLoadingBankCards] = useState(false);
+  const [selectedCard, setSelectedCard] = useState<BankAccount | null>(null);
+
   const [loadingTransactions, setLoadingTransactions] = useState(true);
   const [pots, setPots] = useState(spendingPots);
   const [newPotName, setNewPotName] = useState("");
@@ -167,13 +172,37 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
 
       const data = await response.json();
       setTransactions(data.Balance);
+      return setLoadingTransactions(false);
     } catch (err) {
       setTransactions([]);
       console.log("Error fetching balance:", err);
-    } finally {
-      setLoadingTransactions(false);
     }
   }, [currentMonth]); // Added dependencies to the useCallback dependency array
+
+  const getCards = useCallback(async () => {
+    setLoadingBankCards(true);
+    try {
+      const response = await fetch(`${address}/get-banks`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setBankCards(data);
+      setLoadingBankCards(false);
+    } catch (err) {
+      setBankCards([]);
+      setLoadingBankCards(false);
+      console.log("Error fetching balance:", err);
+    }
+  }, []);
 
   const logout = async () => {
     await supabase.auth.signOut();
@@ -244,6 +273,7 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
 
   useEffect(() => {
     setToken();
+    getCards();
     getBalance();
   }, []);
 
@@ -264,6 +294,7 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
         onPress={async () => {
           setAddBankModal(false);
           await getBalance();
+          await getCards();
         }}
       />
     </SafeAreaView>
@@ -329,17 +360,43 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
       </ScrollView>
       <Text style={styles.title}>Bank activity</Text>
       <View id="bank-activities" style={styles.bankActivities}>
-        <ScrollView id="bank-cards" style={styles.bankCards} horizontal>
-          {Array.from({ length: 5 }).map((_, index) => (
+        <ScrollView
+          id="bank-cards"
+          style={styles.bankCards}
+          horizontal
+          refreshControl={
+            <RefreshControl
+              refreshing={loadingBankCards}
+              onRefresh={getCards}
+            />
+          }
+        >
+          <TouchableOpacity onPress={handleOpenLink}>
+            <ImageBackground
+              id="bankCard"
+              imageStyle={{
+                borderRadius: 15,
+              }}
+              source={addBank}
+              style={styles.bankCard}
+            ></ImageBackground>
+          </TouchableOpacity>
+
+          {bankCards.map((bank) => (
             <TouchableOpacity
-              key={index}
-              onPress={index === 0 ? handleOpenLink : () => {}}
+              key={bank.id}
+              onPress={() => setSelectedCard(bank)}
             >
               <ImageBackground
-                key={index}
-                id="bankCard"
-                imageStyle={{ borderRadius: 15 }}
-                source={index === 0 && addBank}
+                key={bank.id}
+                id={`bankCard ${bank.id}`}
+                imageStyle={{
+                  borderRadius: 15,
+                  borderColor:
+                    selectedCard?.id === bank.id ? "limegreen" : undefined, // Add lime green border color
+                  borderWidth: selectedCard?.id === bank.id ? 3 : 0, // Add border width
+                }}
+                source={getCardImage(bank.bank_name) as any}
                 style={styles.bankCard}
               ></ImageBackground>
             </TouchableOpacity>
@@ -365,33 +422,37 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
             />
           }
         >
-          {!transactions || loadingTransactions ? (
-            <ActivityIndicator size="large" />
-          ) : (
-            transactions.map((trans, index) => (
-              <TouchableOpacity
-                key={index}
-                id="bankCard"
-                style={styles.bankTransaction}
+          {(transactions || []).map((trans, index) => (
+            <TouchableOpacity
+              key={index}
+              id="bankCard"
+              style={styles.bankTransaction}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  width: "80%",
+                }}
               >
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <View
-                    style={{
-                      ...styles.bankTransactionIcon,
-                      backgroundColor:
-                        colorOptions[
-                          Math.floor(Math.random() * colorOptions.length)
-                        ].code,
-                    }}
-                  ></View>
-                  <Text style={styles.bankTransactionName}>{trans.name}</Text>
-                </View>
-                <Text
-                  style={styles.bankTransactionAmount}
-                >{`- £${trans.amount}`}</Text>
-              </TouchableOpacity>
-            ))
-          )}
+                <View
+                  style={{
+                    ...styles.bankTransactionIcon,
+                    backgroundColor:
+                      colorOptions[
+                        Math.floor(Math.random() * colorOptions.length)
+                      ].code,
+                  }}
+                ></View>
+                <Text numberOfLines={1} style={styles.bankTransactionName}>
+                  {trans.name}
+                </Text>
+              </View>
+              <Text
+                style={styles.bankTransactionAmount}
+              >{`- £${trans.amount}`}</Text>
+            </TouchableOpacity>
+          ))}
         </ScrollView>
       </View>
       <Modal isVisible={isModalVisible}>
@@ -603,6 +664,7 @@ const styles = StyleSheet.create({
   bankTransactionName: {
     fontSize: 17,
     fontWeight: 600,
+    width: "80%",
   },
   bankTransactionAmount: {
     fontSize: 17,
