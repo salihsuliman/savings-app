@@ -5,6 +5,7 @@ import Login from "./Login";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { Session } from "@supabase/supabase-js";
+import { AppProvider } from "../context/AppContext";
 
 // Import your screens
 
@@ -27,7 +28,11 @@ function App() {
     <Stack.Navigator>
       {session && session.user ? (
         <Stack.Screen name="Home" options={{ headerShown: false }}>
-          {(props) => <HomeScreen {...props} session={session} />}
+          {(props) => (
+            <AppProvider session={session}>
+              <HomeScreen {...props} session={session} />
+            </AppProvider>
+          )}
         </Stack.Screen>
       ) : (
         <Stack.Screen

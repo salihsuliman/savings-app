@@ -13,3 +13,23 @@ export type TransactionType = {
   transaction_id: string;
   transaction_type: string;
 };
+
+export type TransformedTransactions = {
+  date: string;
+  transactions: {
+    amount: number | null;
+    bank_id: string | null;
+    category: string | null;
+    category_id: string | null;
+    currency: string | null;
+    date: string | null;
+    date_time: string | null;
+    id: string;
+    merchant_name: string | null;
+    name: string | null;
+    transaction_code: string | null;
+    transaction_id: string | null;
+    transaction_type: string | null;
+    user_id: string | null;
+  }[];
+};

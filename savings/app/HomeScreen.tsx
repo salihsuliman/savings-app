@@ -11,20 +11,20 @@ import {
   Button,
   Platform,
   SafeAreaView,
-  ActivityIndicator,
   ScrollView,
   ImageBackground,
   RefreshControl,
   Dimensions,
   Alert,
 } from "react-native";
-import Modal from "react-native-modal";
 import Icon from "react-native-vector-icons/FontAwesome6";
 import { WebView } from "react-native-webview";
-import { Picker } from "@react-native-picker/picker";
-import { BankAccount, Transaction } from "../lib/types";
 import { scaleDown } from "../utils/scaleDownPixels";
 import { getCardImage } from "../utils/getBankImages";
+import { useAppContext } from "../context/AppContext";
+import { Transactions } from "../components/Transactions";
+import { EditPotModal } from "../components/EditPotModal";
+import { colorOptions } from "../constants/Colors";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -32,6 +32,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const scale = SCREEN_WIDTH / 320;
 
 const addBank = require("../assets/images/add-card.png");
+const allBanks = require("../assets/images/view-all.png");
 const addPot = require("../assets/images/add-pot.png");
 
 const spendingPots = [
@@ -62,57 +63,30 @@ interface HomeScreenProps {
   navigation: HomeScreenNavigationProp;
 }
 
-const colorOptions = [
-  { name: "Black", code: "#1A1A1A" },
-  { name: "Blue", code: "#0D47A1" },
-  { name: "Red", code: "#B71C1C" },
-  { name: "Green", code: "#1B5E20" },
-  { name: "Purple", code: "#4A148C" },
-  { name: "Orange", code: "#F57F17" },
-  { name: "Teal", code: "#004D40" },
-  { name: "Gray", code: "#263238" },
-  { name: "Pink", code: "#880E4F" },
-  { name: "Brown", code: "#3E2723" },
-  { name: "Indigo", code: "#303F9F" },
-  { name: "Amber", code: "#FF6F00" },
-  { name: "Cyan", code: "#00796B" },
-  { name: "Dark Gray", code: "#212121" },
-  { name: "Deep Purple", code: "#6A1B9A" },
-];
-
 const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const {
+    bankCards,
+    getBalance,
+    getCards,
+    loadingBankCards,
+    setSelectAllCards,
+    setSelectedCard,
+    selectAllCards,
+    selectedCard,
+  } = useAppContext();
+
   const [isModalVisible, setModalVisible] = useState(false);
   const [plaidWebView, setPlaidWebView] = useState<string | null>(null);
   const [addBankModal, setAddBankModal] = useState(false);
-  const [transactions, setTransactions] = useState<Transaction[] | null>(null);
-  const [bankCards, setBankCards] = useState<BankAccount[]>([]);
-  const [loadingBankCards, setLoadingBankCards] = useState(false);
-  const [selectedCard, setSelectedCard] = useState<BankAccount | null>(null);
-
-  const [loadingTransactions, setLoadingTransactions] = useState(true);
   const [pots, setPots] = useState(spendingPots);
+  const [newPotColor, setNewPotColor] = useState(colorOptions[0].code);
   const [newPotName, setNewPotName] = useState("");
   const [newPotAmount, setNewPotAmount] = useState("");
-  const [newPotColor, setNewPotColor] = useState(colorOptions[0].code);
+
   const [editingPotIndex, setEditingPotIndex] = useState<number | null>(null);
 
   const address =
     Platform.OS === "ios" ? process.env.EXPO_PUBLIC_BACKEND_URL : "10.0.2.2";
-
-  const [newCard, setNewCard] = useState("");
-
-  const changeMonth = (direction: number) => {
-    const newMonth = new Date(
-      currentMonth.getFullYear(),
-      currentMonth.getMonth() + direction
-    );
-    setCurrentMonth(newMonth);
-  };
-
-  const formattedMonthYear = `${currentMonth.toLocaleString("default", {
-    month: "long",
-  })} ${currentMonth.getFullYear()}`;
 
   const createLinkToken = useCallback(async () => {
     await fetch(`${address}/create_link_token`, {
@@ -136,77 +110,16 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     await createLinkToken();
   };
 
-  const setToken = async () => {
-    try {
-      const response = await fetch(`${address}/set-tokens`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-      const data = await response.json();
-    } catch (err) {
-      console.log(err);
-    }
-  };
-
-  // Fetch balance data
-  const getBalance = useCallback(async () => {
-    setLoadingTransactions(true);
-    try {
-      const response = await fetch(`${address}/balance`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          currentMonth,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setTransactions(data.Balance);
-      return setLoadingTransactions(false);
-    } catch (err) {
-      setTransactions([]);
-      console.log("Error fetching balance:", err);
-    }
-  }, [currentMonth]); // Added dependencies to the useCallback dependency array
-
-  const getCards = useCallback(async () => {
-    setLoadingBankCards(true);
-    try {
-      const response = await fetch(`${address}/get-banks`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setBankCards(data);
-      setLoadingBankCards(false);
-    } catch (err) {
-      setBankCards([]);
-      setLoadingBankCards(false);
-      console.log("Error fetching balance:", err);
-    }
-  }, []);
-
   const logout = async () => {
     await supabase.auth.signOut();
     navigation.navigate("Login");
+  };
+
+  const resetModal = () => {
+    setNewPotName("");
+    setNewPotAmount("");
+    setNewPotColor(colorOptions[0].code);
+    setEditingPotIndex(null);
   };
 
   const addOrUpdatePot = () => {
@@ -248,7 +161,6 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
       const updatedPots = pots.filter((_, index) => index !== editingPotIndex);
       setPots(updatedPots);
       setModalVisible(false);
-      resetModal();
     }
   };
 
@@ -264,22 +176,11 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     }
   };
 
-  const resetModal = () => {
-    setNewPotName("");
-    setNewPotAmount("");
-    setNewPotColor(colorOptions[0].code);
-    setEditingPotIndex(null);
-  };
-
   useEffect(() => {
-    setToken();
-    getCards();
-    getBalance();
+    if (!session.user) {
+      logout();
+    }
   }, []);
-
-  useEffect(() => {
-    getBalance();
-  }, [currentMonth]);
 
   return addBankModal ? (
     <SafeAreaView style={{ flex: 1 }}>
@@ -293,8 +194,8 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
         title="Close"
         onPress={async () => {
           setAddBankModal(false);
-          await getBalance();
           await getCards();
+          await getBalance(bankCards.map((bank) => bank.access_token));
         }}
       />
     </SafeAreaView>
@@ -332,7 +233,7 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
               style={{
                 ...styles.potContainer,
               }}
-              onPress={() => openEditModal(index)}
+              onLongPress={() => openEditModal(index)}
             >
               <View
                 key={index}
@@ -382,10 +283,38 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
             ></ImageBackground>
           </TouchableOpacity>
 
+          {bankCards.length > 1 && (
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedCard(null);
+                setSelectAllCards(true);
+                const access_tokens = bankCards.map(
+                  (bank) => bank.access_token
+                );
+                getBalance(access_tokens);
+              }}
+            >
+              <ImageBackground
+                id="bankCard"
+                imageStyle={{
+                  borderRadius: 15,
+                  borderColor: selectAllCards ? "limegreen" : undefined, // Add lime green border color
+                  borderWidth: selectAllCards ? 3 : 0, // Add border width
+                }}
+                source={allBanks}
+                style={styles.bankCard}
+              ></ImageBackground>
+            </TouchableOpacity>
+          )}
+
           {bankCards.map((bank) => (
             <TouchableOpacity
               key={bank.id}
-              onPress={() => setSelectedCard(bank)}
+              onPress={() => {
+                setSelectAllCards(false);
+                setSelectedCard(bank);
+                getBalance([bank.access_token]);
+              }}
             >
               <ImageBackground
                 key={bank.id}
@@ -402,131 +331,22 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
             </TouchableOpacity>
           ))}
         </ScrollView>
-        <View id="transaction-month" style={styles.transactionMonth}>
-          <TouchableOpacity onPress={() => changeMonth(-1)}>
-            <Icon name="chevron-left" size={30} />
-          </TouchableOpacity>
-          <Text style={styles.calendarMonth}>{formattedMonthYear}</Text>
-          <TouchableOpacity onPress={() => changeMonth(1)}>
-            <Icon name="chevron-right" size={30} />
-          </TouchableOpacity>
-        </View>
-        <ScrollView
-          id="transaction"
-          style={styles.transactions}
-          horizontal={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={loadingTransactions}
-              onRefresh={getBalance}
-            />
-          }
-        >
-          {(transactions || []).map((trans, index) => (
-            <TouchableOpacity
-              key={index}
-              id="bankCard"
-              style={styles.bankTransaction}
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  width: "80%",
-                }}
-              >
-                <View
-                  style={{
-                    ...styles.bankTransactionIcon,
-                    backgroundColor:
-                      colorOptions[
-                        Math.floor(Math.random() * colorOptions.length)
-                      ].code,
-                  }}
-                ></View>
-                <Text numberOfLines={1} style={styles.bankTransactionName}>
-                  {trans.name}
-                </Text>
-              </View>
-              <Text
-                style={styles.bankTransactionAmount}
-              >{`- £${trans.amount}`}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        <Transactions />
       </View>
-      <Modal isVisible={isModalVisible}>
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>
-            {editingPotIndex !== null ? "Edit Pot" : "Add New Pot"}
-          </Text>
-          <View style={styles.textFieldContainer}>
-            <Text style={styles.textFieldTitle}>Pot name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Pot Name"
-              value={newPotName}
-              onChangeText={setNewPotName}
-            />
-          </View>
-          <View style={styles.textFieldContainer}>
-            <Text style={styles.textFieldTitle}>Pot amount</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Pot Amount"
-              value={newPotAmount}
-              onChangeText={setNewPotAmount}
-              keyboardType="numeric"
-            />
-          </View>
-          <View style={styles.colorPickerContainer}>
-            <Picker
-              selectedValue={newPotColor}
-              style={styles.picker}
-              onValueChange={(itemValue) => setNewPotColor(itemValue)}
-            >
-              {colorOptions.map((color, index) => (
-                <Picker.Item
-                  key={index}
-                  label={color.name}
-                  value={color.code}
-                />
-              ))}
-            </Picker>
-            <View
-              style={[styles.colorPreview, { backgroundColor: newPotColor }]}
-            />
-          </View>
-          <View style={styles.modalButtons}>
-            {editingPotIndex !== null && (
-              <TouchableOpacity
-                style={[styles.button, styles.cancelButton]}
-                onPress={deletePot}
-              >
-                <Text style={styles.buttonText}>Delete Pot</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={[styles.button, styles.cancelButton]}
-              onPress={() => {
-                setModalVisible(false);
-                resetModal();
-              }}
-            >
-              <Text style={styles.buttonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.button, styles.addButton]}
-              onPress={addOrUpdatePot}
-            >
-              <Text style={styles.buttonText}>
-                {editingPotIndex !== null ? "Update Pot" : "Add Pot"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <EditPotModal
+        addOrUpdatePot={addOrUpdatePot}
+        deletePot={deletePot}
+        editingPotIndex={editingPotIndex}
+        isModalVisible={isModalVisible}
+        setModalVisible={setModalVisible}
+        newPotName={newPotName}
+        newPotAmount={newPotAmount}
+        newPotColor={newPotColor}
+        resetModal={resetModal}
+        setNewPotName={setNewPotName}
+        setNewPotColor={setNewPotColor}
+        setNewPotAmount={setNewPotAmount}
+      />
     </View>
   );
 };
@@ -615,134 +435,16 @@ const styles = StyleSheet.create({
     elevation: 5, // For Android shadow
     margin: 5,
   },
-  transactionMonth: {
-    flexGrow: 0,
-    marginTop: 10,
-    margin: 5,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "white",
-  },
+
   calendarArrow: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#333",
   },
-  calendarMonth: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  transactions: {
-    borderRadius: 30,
-    marginBottom: 20,
-  },
-  bankTransaction: {
-    height: 70,
-    marginHorizontal: 5,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 5,
-    color: "black",
-    borderRadius: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5, // For Android shadow
-    margin: 5,
-  },
 
-  bankTransactionIcon: {
-    height: 50,
-    width: 50,
-    borderRadius: 10,
-    marginRight: 15,
-  },
-  bankTransactionName: {
-    fontSize: 17,
-    fontWeight: 600,
-    width: "80%",
-  },
-  bankTransactionAmount: {
-    fontSize: 17,
-    fontWeight: 600,
-    color: "red",
-  },
   webview: {
     flexGrow: 1,
     width: "100%",
-  },
-  modalContainer: {
-    flexGrow: 0,
-    justifyContent: "space-evenly",
-    alignItems: "center",
-    backgroundColor: "white",
-    padding: 20,
-    borderRadius: 30,
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 20,
-  },
-  input: {
-    width: "100%",
-    height: 60,
-    borderColor: "gray",
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-  },
-  textFieldContainer: {
-    width: "100%",
-    marginBottom: 20,
-  },
-
-  textFieldTitle: {
-    fontSize: 18,
-    fontWeight: 400,
-    marginBottom: 10,
-  },
-
-  colorPickerContainer: {
-    flexDirection: "row",
-    justifyContent: "space-evenly",
-    alignItems: "center",
-    width: "100%",
-    marginBottom: 20,
-  },
-  picker: {
-    width: "60%",
-    height: "100%",
-  },
-  colorPreview: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
-    marginLeft: 10,
-  },
-  modalButtons: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  button: {
-    borderRadius: 5,
-    padding: 10,
-    margin: 5,
-    alignItems: "center",
-  },
-  cancelButton: {
-    backgroundColor: "#d9534f",
-  },
-  addButton: {
-    backgroundColor: "#5cb85c",
-  },
-  buttonText: {
-    color: "white",
-    fontWeight: "bold",
   },
 });
 

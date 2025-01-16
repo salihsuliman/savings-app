@@ -14,6 +14,11 @@ export type Transaction = {
   transaction_type: string;
 };
 
+export type ReturnedTransactions = {
+  date: string;
+  transactions: Transaction[];
+};
+
 export type BankAccount = {
   id: string;
   created_at: string;

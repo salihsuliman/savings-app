@@ -24,3 +24,22 @@ export const Colors = {
     tabIconSelected: tintColorDark,
   },
 };
+
+
+export const colorOptions = [
+  { name: "Black", code: "#1A1A1A" },
+  { name: "Blue", code: "#0D47A1" },
+  { name: "Red", code: "#B71C1C" },
+  { name: "Green", code: "#1B5E20" },
+  { name: "Purple", code: "#4A148C" },
+  { name: "Orange", code: "#F57F17" },
+  { name: "Teal", code: "#004D40" },
+  { name: "Gray", code: "#263238" },
+  { name: "Pink", code: "#880E4F" },
+  { name: "Brown", code: "#3E2723" },
+  { name: "Indigo", code: "#303F9F" },
+  { name: "Amber", code: "#FF6F00" },
+  { name: "Cyan", code: "#00796B" },
+  { name: "Dark Gray", code: "#212121" },
+  { name: "Deep Purple", code: "#6A1B9A" },
+];

@@ -6,7 +6,7 @@ import { Configuration, CountryCode, PlaidApi, PlaidEnvironments } from "plaid";
 import { createClient } from "@supabase/supabase-js";
 import { Database } from "./database";
 import { createClient as createRedisClient } from "redis";
-import type { TransactionType } from "./types";
+import type { TransactionType, TransformedTransactions } from "./types";
 
 import { RedisStore } from "connect-redis";
 
@@ -106,49 +106,55 @@ app.get("/api/set-tokens", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/api/get-banks", async (_, res: Response, next: NextFunction) => {
-  try {
-    const {
-      user,
-      noLoggedInUser,
-      supaError: fetchUserError,
-    } = await fetchUser();
+app.get(
+  "/api/get-banks",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const loggedInUserToken =
+        req.headers.authorization?.split(" ")[1] || "no token found";
 
-    if (!user || noLoggedInUser || fetchUserError) {
-      res.status(400).json({
+      const {
         user,
         noLoggedInUser,
-        fetchUserError,
-      });
+        supaError: fetchUserError,
+      } = await fetchUser(loggedInUserToken);
 
-      console.log("Error fetching user", {
-        user,
-        noLoggedInUser,
-        fetchUserError,
-      });
+      if (!user || noLoggedInUser || fetchUserError) {
+        res.status(400).json({
+          user,
+          noLoggedInUser,
+          fetchUserError,
+        });
+
+        console.log("Error fetching user", {
+          user,
+          noLoggedInUser,
+          fetchUserError,
+        });
+        return;
+      }
+
+      const { data: bankCards, error: supaError } = await supabase
+        .from("bank_accounts")
+        .select()
+        .eq("user_id", user!.id);
+
+      if (supaError) {
+        res.status(400).json(supaError);
+        console.log("error fetching bank accounts", supaError);
+        return;
+      }
+
+      res.json(bankCards);
+
       return;
+    } catch (error) {
+      res.status(400).json(error);
+      console.log(error);
+      next(error);
     }
-
-    const { data: bankCards, error: supaError } = await supabase
-      .from("bank_accounts")
-      .select()
-      .eq("user_id", user!.id);
-
-    if (supaError) {
-      res.status(400).json(supaError);
-      console.log("error fetching bank accounts", supaError);
-      return;
-    }
-
-    res.json(bankCards);
-
-    return;
-  } catch (error) {
-    res.status(400).json(error);
-    console.log(error);
-    next(error);
   }
-});
+);
 
 // Route to create a Link token
 app.get(
@@ -214,6 +220,8 @@ app.post(
         exchangeResponse.data.access_token
       );
 
+      await syncTransactions(exchangeResponse.data.item_id);
+
       res.json(true);
     } catch (error) {
       console.log("Exchange error", error);
@@ -229,129 +237,100 @@ app.post(
     console.log("getting balance!!!!!");
 
     try {
-      const loggedInUser = await redisClient.get("loggedInUserToken");
+      const loggedInUserToken =
+        req.headers.authorization?.split(" ")[1] || "no token found";
+
       const monthData: string = req.body.currentMonth;
+      const accessToken = req.body.access_token;
       const dates = getMonthRange(monthData);
 
-      if (!loggedInUser) {
-        console.log("no logged in user");
-        res
-          .status(400)
-          .json({ error: "User not logged in, or User no user token found" });
-        return;
-      }
+      console.log("getting balance for this:", accessToken);
 
       const { data: userData, error: supaError } = await supabase.auth.getUser(
-        loggedInUser
+        loggedInUserToken
       );
 
       if (supaError) {
-        console.log(supaError);
-        res.status(400).json(supaError);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("users")
-        .select("access_token")
-        .eq("id", userData.user.id);
-
-      if (error || !data[0] || !data[0].access_token) {
-        res.status(400).json({ error: "Error fetching access token" });
-        return;
-      }
-
-      await client
-        .transactionsGet({
-          access_token: data[0].access_token,
-          start_date: dates.firstDay,
-          end_date: dates.lastDay,
-          options: {
-            count: 50,
-          },
-        })
-        .then(async (response) => {
-          const transactions = response.data.transactions || [];
-
-          // Extract transaction IDs to check for existing ones
-          const transactionIds = transactions.map(
-            (tran) => tran.transaction_id
-          );
-
-          // Query for existing transaction IDs
-          const { data: existingTransactions, error: existingError } =
-            await supabase
-              .from("transactions")
-              .select("*") // Select all fields to return existing transactions
-              .in("transaction_id", transactionIds);
-
-          if (existingError) {
-            res
-              .status(500)
-              .json({ error: "Error checking existing transactions" });
-            return;
-          }
-
-          // Filter out already existing transactions
-          const existingIds = new Set(
-            existingTransactions?.map((tran) => tran.transaction_id)
-          );
-
-          const newTransactions = transactions.filter(
-            (tran) => !existingIds.has(tran.transaction_id)
-          );
-
-          // Format the new transactions for insertion
-          const formattedTransaction: TransactionType[] = newTransactions.map(
-            (tran) => ({
-              user_id: userData.user.id,
-              bank_id: tran.account_id,
-              amount: tran.amount,
-              category: JSON.stringify(tran.category) || "",
-              category_id: tran.personal_finance_category?.detailed || "",
-              date: tran.date,
-              date_time: tran.datetime,
-              currency: tran.iso_currency_code,
-              merchant_name: tran.merchant_name || "none found",
-              name: tran.name,
-              transaction_code: tran.transaction_code,
-              transaction_id: tran.transaction_id,
-              transaction_type: tran.transaction_type || "none found",
-            })
-          );
-
-          if (formattedTransaction.length === 0) {
-            // Return the existing transactions if no new transactions found
-            res.json({
-              message: "No new transactions to insert.",
-              Balance: existingTransactions,
-            });
-            return;
-          }
-
-          // Insert only new transactions
-          const { error: insertError } = await supabase
-            .from("transactions")
-            .insert(formattedTransaction);
-
-          if (insertError) {
-            console.error(1111, insertError);
-            res.status(500).json(insertError);
-            return;
-          }
-
-          res.json({
-            Balance: formattedTransaction,
-          });
-
-          return;
-        })
-        .catch((error) => {
-          console.log("Error fetching transactions:", error);
-          res.status(500).json({ error: "Error fetching transactions" });
+        console.log("supaError", supaError);
+        res.status(400).json({
+          message: "No new transactions to insert.",
+          Balance: [],
         });
+        return;
+      }
+
+      const { data: bankData, error: bankError } = await supabase
+        .from("bank_accounts")
+        .select()
+        .in("access_token", accessToken)
+        .eq("user_id", userData.user.id);
+
+      if (bankError) {
+        console.log("bankError", bankError);
+        res.status(400).json({
+          message: "No new transactions to insert.",
+          Balance: [],
+        });
+        return;
+      }
+
+      // Query for existing transaction IDs
+      const { data: transactions, error: existingError } = await supabase
+        .from("transactions")
+        .select("*") // Select all fields to return existing transactions
+        .in(
+          "bank_id",
+          bankData.map((bank) => bank.item_id)
+        )
+        .gte("date", dates.firstDay) // Filter transactions with date >= startDate
+        .lte("date", dates.lastDay) // Filter transactions with date <= endDate
+        .order("date", { ascending: false }); // Order by date in descending order
+
+      if (existingError) {
+        console.log("existingError", existingError);
+        res.status(400).json({
+          message: "No new transactions to insert.",
+          Balance: [],
+        });
+        return;
+      }
+
+      // Group transactions by date
+
+      // Group transactions by date
+      const groupedTransactions = transactions.reduce((acc, transaction) => {
+        const date = transaction.date;
+
+        if (!date) return acc;
+
+        const splitDateArray = date.split("-");
+        const formattedDate = `${splitDateArray[2]}-${splitDateArray[1]}-${splitDateArray[0]}`;
+
+        if (!acc[formattedDate]) {
+          acc[formattedDate] = [];
+        }
+
+        acc[formattedDate].push(transaction);
+        return acc;
+      }, {} as { [key: string]: typeof transactions });
+
+      // Transform the grouped data into the desired format
+      const transformedData = Object.keys(groupedTransactions).map((date) => ({
+        date,
+        transactions: groupedTransactions[date],
+      }));
+
+      console.log("transformedData", transformedData);
+
+      res.json({
+        transactions: transformedData,
+      });
     } catch (error) {
       console.log(error);
+      res.status(400).json({
+        message: "No new transactions to insert.",
+        Balance: [],
+      });
       next(error);
     }
   }
@@ -394,7 +373,6 @@ const populateBankName = async (itemId: string, accessToken: string) => {
       throw new Error(supaError.name, {
         cause: supaError.message,
       });
-      return;
     }
 
     const { error } = await supabase.from("bank_accounts").insert({
@@ -416,25 +394,115 @@ const populateBankName = async (itemId: string, accessToken: string) => {
   }
 };
 
-const fetchUser = async () => {
-  const loggedInUser = await redisClient.get("loggedInUserToken");
-
+const fetchUser = async (userToken: string) => {
   let noLoggedInUser = null;
   let user = null;
   let supaError = null;
 
-  if (!loggedInUser) {
+  if (!userToken) {
     console.log("no logged in user");
     return { noLoggedInUser: "true", user, supaError };
   }
 
-  const { data: userData, error } = await supabase.auth.getUser(loggedInUser);
+  const { data: userData, error } = await supabase.auth.getUser(userToken);
 
   if (error) {
     return { user, supaError: error, noLoggedInUser };
   }
 
   return { noLoggedInUser, user: userData.user, supaError };
+};
+
+const fetchNewSyncData = async (accessToken: string) => {
+  const now = new Date();
+  const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+  // Format dates for API request
+  const formatDate = (date: Date) => date.toISOString().split("T")[0]; // YYYY-MM-DD format
+  const formattedStartDate = formatDate(startDate);
+  const formattedEndDate = formatDate(endDate);
+
+  try {
+    const results = await client.transactionsGet({
+      access_token: accessToken,
+      options: {
+        include_personal_finance_category: true,
+      },
+      start_date: formattedStartDate,
+      end_date: formattedEndDate,
+    });
+    const newData = results.data;
+
+    return newData.transactions;
+  } catch (error) {
+    // If you want to see if this is a sync mutation error, you can look at
+    // error?.response?.data?.error_code
+    console.log(
+      `Oh no! Error! ${JSON.stringify(
+        error
+      )} Let's try again from the beginning!`
+    );
+  }
+};
+
+const syncTransactions = async (itemId: string) => {
+  try {
+    // Step 1: Retrieve our access token and cursor from the database
+
+    const { data: fetchBankData, error: fetchBankError } = await supabase
+      .from("bank_accounts")
+      .select()
+      .eq("item_id", itemId);
+
+    if (fetchBankError) {
+      console.log("---------- fetchBankError ------------");
+      throw new Error(fetchBankError.name, {
+        cause: fetchBankError.message,
+      });
+    }
+
+    const { access_token: accessToken, user_id: userId } = fetchBankData[0];
+
+    if (!accessToken || !userId) {
+      console.log("--------- no access token or user id found ------------");
+      throw new Error("No access token found!!!!");
+    }
+
+    // STEP 2: Save new transactions to the database
+
+    const transactions = await fetchNewSyncData(accessToken);
+
+    const formattedTransaction: TransactionType[] = (transactions || []).map(
+      (tran) => ({
+        user_id: userId,
+        bank_id: itemId,
+        amount: tran.amount,
+        category: JSON.stringify(tran.category) || "",
+        category_id: tran.personal_finance_category?.detailed || "",
+        date: new Date(tran.date).toISOString(),
+        date_time: tran.datetime,
+        currency: tran.iso_currency_code,
+        merchant_name: tran.merchant_name || "none found",
+        name: tran.name,
+        transaction_code: tran.transaction_code,
+        transaction_id: tran.transaction_id,
+        transaction_type: tran.transaction_type || "none found",
+      })
+    );
+
+    if (formattedTransaction.length === 0) {
+      console.log("--------------- no transactions found ---------------");
+    }
+
+    await supabase.from("transactions").insert(formattedTransaction);
+
+    // TODO: Do something in our database with the removed transactions
+
+    return {
+      totalTransactionsAdded: formattedTransaction.length,
+    };
+  } catch (error) {}
 };
 
 // Start the server

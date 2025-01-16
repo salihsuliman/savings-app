@@ -1,6 +1,13 @@
 import dotenv from "dotenv";
 import express, { Request, Response, NextFunction } from "express";
+import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
+import { createClient } from "@supabase/supabase-js";
+import { createClient as createRedisClient } from "redis";
+import { Database } from "./database";
+import type { TransactionType } from "./types";
+
 import bodyParser from "body-parser";
+import { RedisStore } from "connect-redis";
 
 dotenv.config();
 
@@ -14,6 +21,39 @@ const WEBHOOK_PORT = process.env.WEBHOOK_PORT || 8001;
 const webhookApp = express();
 webhookApp.use(bodyParser.urlencoded({ extended: false }));
 webhookApp.use(bodyParser.json());
+
+const supabase = createClient<Database>(
+  process.env.TEST_SUPABASE_URL || "",
+  process.env.TEST_SUPABASE_SERVICE_ROLE_KEY || ""
+);
+const redisClient = createRedisClient({
+  url: process.env.REDIS_URL || "redis://127.0.0.1:6379",
+});
+redisClient.connect().catch();
+
+redisClient.on("error", (err) => console.log("Redis Client Error", err));
+
+// Initialize store.
+const redisStore = new RedisStore({
+  client: redisClient,
+  prefix: "savingsApp:",
+});
+
+// Configuration for the Plaid client
+const config = new Configuration({
+  basePath:
+    PlaidEnvironments[process.env.PLAID_ENV as keyof typeof PlaidEnvironments],
+  baseOptions: {
+    headers: {
+      "PLAID-CLIENT-ID": process.env.PLAID_CLIENT_ID!,
+      "PLAID-SECRET": process.env.PLAID_SECRET!,
+      "Plaid-Version": "2020-09-14",
+    },
+  },
+});
+
+// Instantiate the Plaid client with the configuration
+const client = new PlaidApi(config);
 
 const webhookServer = webhookApp.listen(WEBHOOK_PORT, () => {
   console.log(
@@ -54,9 +94,75 @@ webhookApp.post(
   }
 );
 
-function handleTxnWebhook(code: string, requestBody: any) {
+const handleTxnWebhook = async (code: string, requestBody: any) => {
   switch (code) {
     case "SYNC_UPDATES_AVAILABLE":
+      console.log("--------------Syncing transactions!--------------");
+
+      // get item id
+      const itemId = requestBody.item_id;
+
+      // grab access token from database using item id as reference
+
+      const { data: itemData, error: itemError } = await supabase
+        .from("bank_accounts")
+        .select()
+        .eq("item_id", itemId);
+
+      if (itemError) {
+        console.log("--------------Webhook getting item error--------------");
+        throw new Error(itemError.message);
+      }
+
+      if (!itemData[0].access_token) {
+        console.log("No access token found!", {
+          itemData,
+        });
+        return;
+      }
+      // grab all transactions
+
+      const { data: transactions } = await client.transactionsSync({
+        access_token: itemData[0].access_token,
+      });
+
+      console.log("transactions.added", transactions.added);
+      // only add transactions that are not already in the database
+
+      const formattedTransaction: TransactionType[] = transactions.added.map(
+        (tran) => ({
+          user_id: itemData[0].user_id!,
+          bank_id: itemData[0].item_id!,
+          amount: tran.amount,
+          category: JSON.stringify(tran.category) || "",
+          category_id: tran.personal_finance_category?.detailed || "",
+          date: tran.date,
+          date_time: tran.datetime,
+          currency: tran.iso_currency_code,
+          merchant_name: tran.merchant_name || "none found",
+          name: tran.name,
+          transaction_code: tran.transaction_code,
+          transaction_id: tran.transaction_id,
+          transaction_type: tran.transaction_type || "none found",
+        })
+      );
+
+      const { data: syncTransactions, error: transactionError } = await supabase
+        .from("transactions")
+        .insert(formattedTransaction)
+        .select();
+
+      if (transactionError) {
+        console.log(
+          "--------------Webhook getting transaction error--------------"
+        );
+        throw new Error(transactionError.message);
+      }
+
+      console.log({
+        syncTransactions,
+      });
+
       break;
     // If we're using sync, we don't really need to concern ourselves with the
     // other transactions-related webhooks
@@ -64,7 +170,7 @@ function handleTxnWebhook(code: string, requestBody: any) {
       console.log(`Can't handle webhook code ${code}`);
       break;
   }
-}
+};
 
 async function handleLinkWebhook(code: string, requestBody: any) {
   switch (code) {
