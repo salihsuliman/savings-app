@@ -1,5 +1,5 @@
 import Icon from "react-native-vector-icons/FontAwesome6";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   TouchableOpacity,
@@ -9,11 +9,27 @@ import {
   StyleSheet,
   ActivityIndicator,
   SafeAreaView,
+  Alert,
+  Dimensions,
 } from "react-native";
 import { useAppContext } from "../context/AppContext";
 import { colorOptions } from "../constants/Colors";
+import { Pot, Transaction } from "../lib/types";
+import Modal from "react-native-modal";
+import { scaleDown } from "../utils/scaleDownPixels";
 
-export const Transactions = () => {
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+// based on iphone 5s's scale
+const scale = SCREEN_WIDTH / 320;
+
+export const Transactions = ({
+  pots,
+  setPots,
+}: {
+  pots: Pot[];
+  setPots: React.Dispatch<React.SetStateAction<Pot[]>>;
+}) => {
   const {
     bankCards,
     selectedCard,
@@ -24,6 +40,11 @@ export const Transactions = () => {
     currentMonth,
     setCurrentMonth,
   } = useAppContext();
+
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] =
+    useState<Transaction | null>(null);
+  const [selectedPot, setSelectedPot] = useState<Pot | null>(null);
 
   const changeMonth = (direction: number) => {
     const newMonth = new Date(
@@ -45,6 +66,37 @@ export const Transactions = () => {
     );
   };
 
+  const handleLongPress = (transaction: Transaction) => {
+    setSelectedTransaction(transaction);
+    setModalVisible(true);
+  };
+
+  const handleAddToPot = () => {
+    if (!selectedPot) {
+      Alert.alert("Validation Error", "Please select a pot.");
+      return;
+    }
+
+    const updatedPots = pots.map((pot) => {
+      if (pot.id === selectedPot.id) {
+        return {
+          ...pot,
+          transactions: selectedTransaction
+            ? [...pot.transactions, selectedTransaction]
+            : pot.transactions,
+        };
+      }
+      return pot;
+    });
+
+    setPots(updatedPots);
+    setModalVisible(false);
+    setSelectedTransaction(null);
+    setSelectedPot(null);
+  };
+
+  console.log(pots);
+
   return (
     <>
       <View id="transaction-month" style={styles.transactionMonth}>
@@ -60,7 +112,7 @@ export const Transactions = () => {
           <View />
         )}
       </View>
-      {!transactions.length ? (
+      {!transactions.length && !loadingTransactions ? (
         <View
           style={{
             justifyContent: "center",
@@ -126,6 +178,7 @@ export const Transactions = () => {
                     key={index}
                     id="bankCard"
                     style={styles.bankTransaction}
+                    onLongPress={() => handleLongPress(trans)}
                   >
                     <View
                       style={{
@@ -151,8 +204,11 @@ export const Transactions = () => {
                       </Text>
                     </View>
                     <Text
-                      style={styles.bankTransactionAmount}
-                    >{`- £${trans.amount}`}</Text>
+                      style={{
+                        ...styles.bankTransactionAmount,
+                        color: trans.amount > 0 ? "red" : "green",
+                      }}
+                    >{`£${trans.amount}`}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -160,6 +216,80 @@ export const Transactions = () => {
           )}
         </ScrollView>
       )}
+      <Modal
+        isVisible={isModalVisible}
+        animationIn={"fadeIn"}
+        useNativeDriver={true}
+      >
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Select a Pot</Text>
+
+          <ScrollView
+            id="spending-pots"
+            style={styles.spendingPot}
+            contentContainerStyle={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              width: "100%",
+            }}
+            horizontal
+          >
+            {pots.map((pot, index) => (
+              <TouchableOpacity
+                key={index}
+                activeOpacity={1}
+                style={{
+                  ...styles.potContainer,
+                  borderWidth: 3,
+                  borderRadius: 10,
+                  borderColor:
+                    selectedPot?.id === pot.id ? "limegreen" : "white",
+                }}
+                onPress={() => setSelectedPot(pot)}
+              >
+                <View
+                  key={index}
+                  id="savingPot"
+                  style={{
+                    ...styles.pot,
+                    backgroundColor: pot.color,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: scaleDown(10, scale),
+                      fontWeight: "700",
+                      padding: 5,
+                      color: "white",
+                    }}
+                  >
+                    {pot.label}
+                  </Text>
+                </View>
+
+                <Text style={{ fontSize: 18, marginTop: 8, fontWeight: "600" }}>
+                  {`£${pot.amount}`}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <View style={styles.modalButtons}>
+            <TouchableOpacity
+              style={[styles.button, styles.cancelButton]}
+              onPress={() => setModalVisible(false)}
+            >
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, styles.addButton]}
+              onPress={handleAddToPot}
+            >
+              <Text style={styles.buttonText}>Add to Pot</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 };
@@ -188,7 +318,6 @@ const styles = StyleSheet.create({
   bankTransactionAmount: {
     fontSize: 17,
     fontWeight: 600,
-    color: "red",
   },
   bankTransactionIcon: {
     height: 50,
@@ -229,5 +358,77 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "bold",
     color: "#333",
+  },
+  modalContainer: {
+    flexGrow: 0,
+    justifyContent: "space-evenly",
+    alignItems: "center",
+    backgroundColor: "white",
+    padding: 20,
+    borderRadius: 30,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    marginBottom: 20,
+  },
+  potOption: {
+    padding: 15,
+    borderRadius: 10,
+    marginVertical: 5,
+    width: "100%",
+    alignItems: "center",
+  },
+  potOptionText: {
+    fontSize: 18,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  button: {
+    borderRadius: 5,
+    padding: 10,
+    margin: 5,
+    alignItems: "center",
+    flex: 1,
+  },
+  cancelButton: {
+    backgroundColor: "#d9534f",
+  },
+  addButton: {
+    backgroundColor: "#5cb85c",
+  },
+  buttonText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+  spendingPot: {
+    flexGrow: 0,
+    paddingVertical: 5,
+    paddingHorizontal: 30,
+    backgroundColor: "white",
+    marginHorizontal: 10,
+    borderRadius: 50,
+  },
+  pot: {
+    height: 90,
+    width: 70,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    color: "black",
+    borderRadius: 10,
+    backgroundColor: "#d9d9d9",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5, // For Android shadow
+    margin: 5,
+  },
+  potContainer: {
+    alignItems: "center",
   },
 });

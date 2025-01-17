@@ -25,20 +25,37 @@ import { useAppContext } from "../context/AppContext";
 import { Transactions } from "../components/Transactions";
 import { EditPotModal } from "../components/EditPotModal";
 import { colorOptions } from "../constants/Colors";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
-// based on iphone 5s's scale
-const scale = SCREEN_WIDTH / 320;
+import { SpendingPot } from "../components/SpendingPot";
+import { Pot } from "../lib/types";
 
 const addBank = require("../assets/images/add-card.png");
 const allBanks = require("../assets/images/view-all.png");
-const addPot = require("../assets/images/add-pot.png");
 
-const spendingPots = [
-  { id: "1", label: "Add pot", amount: "0", icon: "", color: "" },
-  { id: "2", label: "Groceries", amount: "£280", icon: "🛒", color: "#1B5E20" },
-  { id: "3", label: "Dining", amount: "-£15", icon: "🍴", color: "#B71C1C" },
+const spendingPots: Pot[] = [
+  {
+    id: "1",
+    label: "Add pot",
+    amount: "0",
+    icon: "",
+    color: "",
+    transactions: [],
+  },
+  {
+    id: "2",
+    label: "Groceries",
+    amount: "280",
+    icon: "🛒",
+    color: "#1B5E20",
+    transactions: [],
+  },
+  {
+    id: "3",
+    label: "Dining",
+    amount: "-15",
+    icon: "🍴",
+    color: "#B71C1C",
+    transactions: [],
+  },
 ];
 
 const bankCards = [
@@ -149,6 +166,7 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
         amount: newPotAmount,
         color: newPotColor,
         icon: "",
+        transactions: [],
       };
       setPots([...pots, newPot]);
     }
@@ -201,64 +219,12 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     </SafeAreaView>
   ) : (
     <View style={styles.mainContainer}>
-      <View style={styles.firstTitleSection}>
-        <Text style={styles.title}>Spending pot</Text>
-        <TouchableOpacity style={styles.logout} onPress={logout}>
-          <Icon name="right-from-bracket" size={30} color={"#3629B7"} />
-        </TouchableOpacity>
-      </View>
-      <ScrollView id="spending-pots" style={styles.spendingPot} horizontal>
-        {pots.map((pot, index) =>
-          index === 0 ? (
-            <TouchableOpacity
-              key={index}
-              style={{
-                ...styles.potContainer,
-              }}
-              onPress={() => setModalVisible(true)}
-            >
-              <ImageBackground
-                key={index}
-                id="savingPot"
-                style={styles.pot}
-                imageStyle={{
-                  borderRadius: 10,
-                }}
-                source={addPot}
-              ></ImageBackground>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              key={index}
-              style={{
-                ...styles.potContainer,
-              }}
-              onLongPress={() => openEditModal(index)}
-            >
-              <View
-                key={index}
-                id="savingPot"
-                style={{ ...styles.pot, backgroundColor: pot.color }}
-              >
-                <Text
-                  style={{
-                    fontSize: scaleDown(10, scale),
-                    fontWeight: "700",
-                    padding: 5,
-                    color: "white",
-                  }}
-                >
-                  {pot.label}
-                </Text>
-              </View>
-
-              <Text style={{ fontSize: 18, marginTop: 8, fontWeight: "600" }}>
-                {pot.amount}
-              </Text>
-            </TouchableOpacity>
-          )
-        )}
-      </ScrollView>
+      <SpendingPot
+        pots={pots}
+        logout={logout}
+        setModalVisible={setModalVisible}
+        openEditModal={openEditModal}
+      />
       <Text style={styles.title}>Bank activity</Text>
       <View id="bank-activities" style={styles.bankActivities}>
         <ScrollView
@@ -331,7 +297,7 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
             </TouchableOpacity>
           ))}
         </ScrollView>
-        <Transactions />
+        <Transactions pots={pots} setPots={setPots} />
       </View>
       <EditPotModal
         addOrUpdatePot={addOrUpdatePot}
@@ -368,43 +334,6 @@ const styles = StyleSheet.create({
   firstTitleSection: {
     flexDirection: "row",
     justifyContent: "space-evenly",
-    alignItems: "center",
-  },
-  logout: {
-    backgroundColor: "white",
-    height: 50,
-    width: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 20,
-  },
-  spendingPot: {
-    flexGrow: 0,
-    paddingVertical: 5,
-    paddingHorizontal: 30,
-    backgroundColor: "white",
-    marginHorizontal: 10,
-    borderRadius: 50,
-  },
-  pot: {
-    height: 90,
-    width: 70,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    color: "black",
-    borderRadius: 10,
-    backgroundColor: "#d9d9d9",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5, // For Android shadow
-    margin: 5,
-  },
-
-  potContainer: {
     alignItems: "center",
   },
 

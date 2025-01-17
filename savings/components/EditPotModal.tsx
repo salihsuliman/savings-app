@@ -39,7 +39,7 @@ export const EditPotModal = ({
   setNewPotAmount: React.Dispatch<React.SetStateAction<string>>;
 }) => {
   return (
-    <Modal isVisible={isModalVisible}>
+    <Modal isVisible={isModalVisible} useNativeDriver={true}>
       <View style={styles.modalContainer}>
         <Text style={styles.modalTitle}>
           {editingPotIndex !== null ? "Edit Pot" : "Add New Pot"}

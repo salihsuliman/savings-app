@@ -27,3 +27,12 @@ export type BankAccount = {
   item_id: string;
   user_id: string;
 };
+
+export type Pot = {
+  id: string;
+  label: string;
+  amount: string;
+  icon: string;
+  color: string;
+  transactions: Transaction[];
+};
