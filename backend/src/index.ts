@@ -6,7 +6,11 @@ import { Configuration, CountryCode, PlaidApi, PlaidEnvironments } from "plaid";
 import { createClient } from "@supabase/supabase-js";
 import { Database } from "./database";
 import { createClient as createRedisClient } from "redis";
-import type { TransactionType, TransformedTransactions } from "./types";
+import type {
+  TransactionsSupabase,
+  TransactionType,
+  TransformedTransactions,
+} from "./types";
 
 import { RedisStore } from "connect-redis";
 
@@ -244,8 +248,6 @@ app.post(
       const accessToken = req.body.access_token;
       const dates = getMonthRange(monthData);
 
-      console.log("getting balance for this:", accessToken);
-
       const { data: userData, error: supaError } = await supabase.auth.getUser(
         loggedInUserToken
       );
@@ -320,8 +322,6 @@ app.post(
         transactions: groupedTransactions[date],
       }));
 
-      console.log("transformedData", transformedData);
-
       res.json({
         transactions: transformedData,
       });
@@ -331,6 +331,111 @@ app.post(
         message: "No new transactions to insert.",
         Balance: [],
       });
+      next(error);
+    }
+  }
+);
+
+// Get pots
+app.get(
+  "/api/get-pots",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      console.log("getting pots!!!!");
+      const user_id = req.headers.user_id || "no token found";
+
+      const { data: pots, error: supaError } = await supabase
+        .from("savings_pot")
+        .select()
+        .eq("user_id", user_id)
+        .order("amount", { ascending: false });
+
+      if (supaError) {
+        res.status(400).json(supaError);
+        console.log("error fetching pots", supaError);
+        return;
+      }
+
+      const formattedPots = pots.map((pot) => {
+        return {
+          ...pot,
+          transactions: JSON.parse(pot.transactions || "[]"),
+        };
+      });
+
+      res.status(200).json({ pots: formattedPots });
+
+      return;
+    } catch (error) {
+      res.status(400).json(error);
+      console.log(error);
+      next(error);
+    }
+  }
+);
+
+// Add pot
+app.post(
+  "/api/add-pot",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { label, amount, color, user_id, transactions } = req.body;
+
+      const { error: supaError } = await supabase.from("savings_pot").insert({
+        label,
+        amount,
+        color,
+        user_id,
+        transactions,
+      });
+
+      if (supaError) {
+        res.status(400).json(supaError);
+        console.log("error adding pots", supaError);
+        return;
+      }
+
+      res.status(200).json({ ok: true });
+
+      return;
+    } catch (error) {
+      res.status(400).json(error);
+      console.log(error);
+      next(error);
+    }
+  }
+);
+
+// Update pot
+app.post(
+  "/api/update-pot",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id, label, amount, color, user_id, transactions } = req.body;
+
+      const { error: supaError } = await supabase
+        .from("savings_pot")
+        .update({
+          label,
+          amount,
+          color,
+          transactions,
+        })
+        .eq("user_id", user_id)
+        .eq("id", id);
+
+      if (supaError) {
+        res.status(400).json(supaError);
+        console.log("error adding pots", supaError);
+        return;
+      }
+
+      res.status(200).json({ ok: true });
+
+      return;
+    } catch (error) {
+      res.status(400).json(error);
+      console.log(error);
       next(error);
     }
   }

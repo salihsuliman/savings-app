@@ -1,5 +1,5 @@
 import Icon from "react-native-vector-icons/FontAwesome6";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   TouchableOpacity,
@@ -23,14 +23,10 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 // based on iphone 5s's scale
 const scale = SCREEN_WIDTH / 320;
 
-export const Transactions = ({
-  pots,
-  setPots,
-}: {
-  pots: Pot[];
-  setPots: React.Dispatch<React.SetStateAction<Pot[]>>;
-}) => {
+export const Transactions = () => {
   const {
+    pots,
+    setPots,
     bankCards,
     selectedCard,
     selectAllCards,
@@ -39,6 +35,7 @@ export const Transactions = ({
     transactions,
     currentMonth,
     setCurrentMonth,
+    updatePotQuery,
   } = useAppContext();
 
   const [isModalVisible, setModalVisible] = useState(false);
@@ -71,31 +68,24 @@ export const Transactions = ({
     setModalVisible(true);
   };
 
-  const handleAddToPot = () => {
+  const handleAddToPot = async () => {
     if (!selectedPot) {
       Alert.alert("Validation Error", "Please select a pot.");
       return;
     }
 
-    const updatedPots = pots.map((pot) => {
-      if (pot.id === selectedPot.id) {
-        return {
-          ...pot,
-          transactions: selectedTransaction
-            ? [...pot.transactions, selectedTransaction]
-            : pot.transactions,
-        };
-      }
-      return pot;
-    });
+    const updatedPot = {
+      ...selectedPot,
+      transactions: selectedTransaction
+        ? [...selectedPot.transactions, selectedTransaction]
+        : selectedPot.transactions,
+    };
 
-    setPots(updatedPots);
+    await updatePotQuery(updatedPot);
     setModalVisible(false);
     setSelectedTransaction(null);
     setSelectedPot(null);
   };
-
-  console.log(pots);
 
   return (
     <>
@@ -175,7 +165,7 @@ export const Transactions = ({
                 <Text style={styles.transactionDate}>{trans.date}</Text>
                 {(trans.transactions || []).map((trans, index) => (
                   <TouchableOpacity
-                    key={index}
+                    key={trans.id}
                     id="bankCard"
                     style={styles.bankTransaction}
                     onLongPress={() => handleLongPress(trans)}
@@ -248,7 +238,7 @@ export const Transactions = ({
                 onPress={() => setSelectedPot(pot)}
               >
                 <View
-                  key={index}
+                  key={pot.id}
                   id="savingPot"
                   style={{
                     ...styles.pot,
@@ -268,7 +258,12 @@ export const Transactions = ({
                 </View>
 
                 <Text style={{ fontSize: 18, marginTop: 8, fontWeight: "600" }}>
-                  {`£${pot.amount}`}
+                  {`£${
+                    parseInt(pot.amount) -
+                    pot.transactions.reduce((acc, curr) => {
+                      return (acc += curr.amount);
+                    }, 0)
+                  }`}
                 </Text>
               </TouchableOpacity>
             ))}

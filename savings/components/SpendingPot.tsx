@@ -15,6 +15,7 @@ import { Picker } from "@react-native-picker/picker";
 import { colorOptions } from "../constants/Colors";
 import { scaleDown } from "../utils/scaleDownPixels";
 import { Pot } from "../lib/types";
+import { useAppContext } from "../context/AppContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -22,19 +23,19 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const scale = SCREEN_WIDTH / 320;
 
 type SpendingPotProps = {
-  pots: Pot[];
   logout: () => Promise<void>;
   setModalVisible: React.Dispatch<React.SetStateAction<boolean>>;
-  openEditModal: (index: number) => void;
+  openEditModal: (pot: Pot) => void;
 };
 
 export const SpendingPot = ({
-  pots,
   logout,
   setModalVisible,
   openEditModal,
 }: SpendingPotProps) => {
   const addPot = require("../assets/images/add-pot.png");
+
+  const { pots } = useAppContext();
 
   return (
     <>
@@ -45,61 +46,57 @@ export const SpendingPot = ({
         </TouchableOpacity>
       </View>
       <ScrollView id="spending-pots" style={styles.spendingPot} horizontal>
-        {pots.map((pot, index) =>
-          index === 0 ? (
-            <TouchableOpacity
-              key={index}
-              style={{
-                ...styles.potContainer,
-              }}
-              onPress={() => setModalVisible(true)}
-            >
-              <ImageBackground
-                key={index}
-                id="savingPot"
-                style={styles.pot}
-                imageStyle={{
-                  borderRadius: 10,
-                }}
-                source={addPot}
-              ></ImageBackground>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              key={index}
-              style={{
-                ...styles.potContainer,
-              }}
-              onLongPress={() => openEditModal(index)}
-            >
-              <View
-                key={index}
-                id="savingPot"
-                style={{ ...styles.pot, backgroundColor: pot.color }}
-              >
-                <Text
-                  style={{
-                    fontSize: scaleDown(10, scale),
-                    fontWeight: "700",
-                    padding: 5,
-                    color: "white",
-                  }}
-                >
-                  {pot.label}
-                </Text>
-              </View>
+        <TouchableOpacity
+          style={{
+            ...styles.potContainer,
+          }}
+          onPress={() => setModalVisible(true)}
+        >
+          <ImageBackground
+            id="savingPot"
+            style={styles.pot}
+            imageStyle={{
+              borderRadius: 10,
+            }}
+            source={addPot}
+          ></ImageBackground>
+        </TouchableOpacity>
 
-              <Text style={{ fontSize: 18, marginTop: 8, fontWeight: "600" }}>
-                {`£${
-                  parseInt(pot.amount) -
-                  pot.transactions.reduce((acc, curr) => {
-                    return (acc += curr.amount);
-                  }, 0)
-                }`}
+        {pots.map((pot, index) => (
+          <TouchableOpacity
+            key={pot.id}
+            style={{
+              ...styles.potContainer,
+            }}
+            onLongPress={() => openEditModal(pot)}
+          >
+            <View
+              key={index}
+              id="savingPot"
+              style={{ ...styles.pot, backgroundColor: pot.color }}
+            >
+              <Text
+                style={{
+                  fontSize: scaleDown(10, scale),
+                  fontWeight: "700",
+                  padding: 5,
+                  color: "white",
+                }}
+              >
+                {pot.label}
               </Text>
-            </TouchableOpacity>
-          )
-        )}
+            </View>
+
+            <Text style={{ fontSize: 18, marginTop: 8, fontWeight: "600" }}>
+              {`£${
+                parseInt(pot.amount) -
+                pot.transactions.reduce((acc, curr) => {
+                  return (acc += curr.amount);
+                }, 0)
+              }`}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </ScrollView>
     </>
   );

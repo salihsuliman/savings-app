@@ -1,4 +1,5 @@
 export type Transaction = {
+  id: string;
   user_id: string;
   bank_id: string;
   amount: number;
@@ -29,10 +30,9 @@ export type BankAccount = {
 };
 
 export type Pot = {
-  id: string;
+  id?: string;
   label: string;
   amount: string;
-  icon: string;
   color: string;
   transactions: Transaction[];
 };

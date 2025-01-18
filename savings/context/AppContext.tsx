@@ -7,8 +7,9 @@ import React, {
 } from "react";
 import { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { BankAccount, ReturnedTransactions } from "../lib/types";
+import { BankAccount, Pot, ReturnedTransactions } from "../lib/types";
 import { Platform } from "react-native";
+import { spendingPotsSample } from "../lib/sampleData";
 
 interface AppContextProps {
   transactions: ReturnedTransactions[];
@@ -18,6 +19,7 @@ interface AppContextProps {
   selectedCard: BankAccount | null;
   selectAllCards: boolean;
   currentMonth: Date;
+  pots: Pot[];
   getBalance: (access_tokens: string[]) => Promise<void>;
   getCards: (firstLoad?: boolean) => Promise<void>;
   setToken: () => Promise<void>;
@@ -28,6 +30,10 @@ interface AppContextProps {
   setTransactions: React.Dispatch<React.SetStateAction<ReturnedTransactions[]>>;
   setBankCards: React.Dispatch<React.SetStateAction<BankAccount[]>>;
   setLoadingBankCards: React.Dispatch<React.SetStateAction<boolean>>;
+  setPots: React.Dispatch<React.SetStateAction<Pot[]>>;
+  getPots: () => Promise<void>;
+  addPotQuery: (pot: Pot) => Promise<void>;
+  updatePotQuery: (pot: Pot) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextProps | undefined>(undefined);
@@ -46,6 +52,7 @@ export const AppProvider = ({
   const [selectedCard, setSelectedCard] = useState<BankAccount | null>(null);
   const [selectAllCards, setSelectAllCards] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [pots, setPots] = useState<Pot[]>([]);
 
   const address =
     Platform.OS === "ios" ? process.env.EXPO_PUBLIC_BACKEND_URL : "10.0.2.2";
@@ -67,7 +74,7 @@ export const AppProvider = ({
         });
 
         if (!response.ok) {
-          console.log("Error response", response);
+          console.log("Error response getting balance", response);
           setLoadingTransactions(false);
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -83,6 +90,89 @@ export const AppProvider = ({
     },
     [currentMonth]
   );
+
+  const getPots = useCallback(async () => {
+    try {
+      const response = await fetch(`${address}/get-pots`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          user_id: session.user.id,
+        },
+      });
+
+      if (!response.ok) {
+        console.log("Error response getting pots", response);
+        setLoadingTransactions(false);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      console.log("data", response);
+
+      const data = await response.json();
+
+      setPots(data.pots);
+    } catch (error) {
+      console.log("Error fetching pots:", error);
+    }
+  }, []);
+
+  const addPotQuery = useCallback(async (pot: Pot) => {
+    try {
+      const response = await fetch(`${address}/add-pot`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          user_id: session.user.id,
+        },
+        body: JSON.stringify({
+          label: pot.label,
+          amount: pot.amount,
+          color: pot.color,
+          user_id: session.user.id,
+          transactions: pot.transactions,
+        }),
+      });
+
+      if (!response.ok) {
+        console.log("Error response adding pots", response);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      await getPots();
+    } catch (error) {
+      console.log("Error adding pots:", error);
+    }
+  }, []);
+
+  const updatePotQuery = useCallback(async (pot: Pot) => {
+    try {
+      const response = await fetch(`${address}/update-pot`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          user_id: session.user.id,
+        },
+        body: JSON.stringify({
+          id: pot.id,
+          label: pot.label,
+          amount: pot.amount,
+          color: pot.color,
+          user_id: session.user.id,
+          transactions: pot.transactions,
+        }),
+      });
+
+      if (!response.ok) {
+        console.log("Error response updating pots", response);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      await getPots();
+    } catch (error) {
+      console.log("Error updating pots:", error);
+    }
+  }, []);
 
   const getCards = useCallback(async () => {
     setLoadingBankCards(true);
@@ -130,6 +220,7 @@ export const AppProvider = ({
 
   useEffect(() => {
     setToken();
+    getPots();
     getCards();
   }, []);
 
@@ -154,6 +245,7 @@ export const AppProvider = ({
         loadingTransactions,
         loadingBankCards,
         currentMonth,
+        pots,
         getBalance,
         getCards,
         setToken,
@@ -164,6 +256,10 @@ export const AppProvider = ({
         setTransactions,
         setBankCards,
         setLoadingBankCards,
+        setPots,
+        getPots,
+        addPotQuery,
+        updatePotQuery,
       }}
     >
       {children}

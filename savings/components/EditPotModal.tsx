@@ -10,10 +10,11 @@ import {
 import Modal from "react-native-modal";
 import { Picker } from "@react-native-picker/picker";
 import { colorOptions } from "../constants/Colors";
+import { Pot } from "../lib/types";
 
 export const EditPotModal = ({
   isModalVisible,
-  editingPotIndex,
+  editingPot,
   newPotName,
   newPotAmount,
   newPotColor,
@@ -26,7 +27,7 @@ export const EditPotModal = ({
   setNewPotAmount,
 }: {
   isModalVisible: boolean;
-  editingPotIndex: number | null;
+  editingPot: Pot | null;
   newPotName: string;
   newPotAmount: string;
   newPotColor: string;
@@ -42,7 +43,7 @@ export const EditPotModal = ({
     <Modal isVisible={isModalVisible} useNativeDriver={true}>
       <View style={styles.modalContainer}>
         <Text style={styles.modalTitle}>
-          {editingPotIndex !== null ? "Edit Pot" : "Add New Pot"}
+          {editingPot !== null ? "Edit Pot" : "Add New Pot"}
         </Text>
         <View style={styles.textFieldContainer}>
           <Text style={styles.textFieldTitle}>Pot name</Text>
@@ -78,7 +79,7 @@ export const EditPotModal = ({
           />
         </View>
         <View style={styles.modalButtons}>
-          {editingPotIndex !== null && (
+          {editingPot !== null && (
             <TouchableOpacity
               style={[styles.button, styles.cancelButton]}
               onPress={() => {
@@ -104,7 +105,7 @@ export const EditPotModal = ({
             onPress={addOrUpdatePot}
           >
             <Text style={styles.buttonText}>
-              {editingPotIndex !== null ? "Update Pot" : "Add Pot"}
+              {editingPot !== null ? "Update Pot" : "Add Pot"}
             </Text>
           </TouchableOpacity>
         </View>

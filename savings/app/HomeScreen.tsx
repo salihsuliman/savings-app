@@ -7,19 +7,15 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
   Button,
   Platform,
   SafeAreaView,
   ScrollView,
   ImageBackground,
   RefreshControl,
-  Dimensions,
   Alert,
 } from "react-native";
-import Icon from "react-native-vector-icons/FontAwesome6";
 import { WebView } from "react-native-webview";
-import { scaleDown } from "../utils/scaleDownPixels";
 import { getCardImage } from "../utils/getBankImages";
 import { useAppContext } from "../context/AppContext";
 import { Transactions } from "../components/Transactions";
@@ -30,39 +26,6 @@ import { Pot } from "../lib/types";
 
 const addBank = require("../assets/images/add-card.png");
 const allBanks = require("../assets/images/view-all.png");
-
-const spendingPots: Pot[] = [
-  {
-    id: "1",
-    label: "Add pot",
-    amount: "0",
-    icon: "",
-    color: "",
-    transactions: [],
-  },
-  {
-    id: "2",
-    label: "Groceries",
-    amount: "280",
-    icon: "🛒",
-    color: "#1B5E20",
-    transactions: [],
-  },
-  {
-    id: "3",
-    label: "Dining",
-    amount: "-15",
-    icon: "🍴",
-    color: "#B71C1C",
-    transactions: [],
-  },
-];
-
-const bankCards = [
-  { id: "1", label: "Add Card", icon: null },
-  { id: "2", label: "AMEX", icon: "💳" },
-  { id: "3", label: "Lloyds", icon: "🏦" },
-];
 
 export type RootStackParamList = {
   Home: undefined; // No parameters for Home screen
@@ -82,6 +45,8 @@ interface HomeScreenProps {
 
 const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
   const {
+    pots,
+    setPots,
     bankCards,
     getBalance,
     getCards,
@@ -90,17 +55,18 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     setSelectedCard,
     selectAllCards,
     selectedCard,
+    addPotQuery,
+    updatePotQuery,
   } = useAppContext();
 
   const [isModalVisible, setModalVisible] = useState(false);
   const [plaidWebView, setPlaidWebView] = useState<string | null>(null);
   const [addBankModal, setAddBankModal] = useState(false);
-  const [pots, setPots] = useState(spendingPots);
   const [newPotColor, setNewPotColor] = useState(colorOptions[0].code);
   const [newPotName, setNewPotName] = useState("");
   const [newPotAmount, setNewPotAmount] = useState("");
 
-  const [editingPotIndex, setEditingPotIndex] = useState<number | null>(null);
+  const [editingPot, setEditingPot] = useState<Pot | null>(null);
 
   const address =
     Platform.OS === "ios" ? process.env.EXPO_PUBLIC_BACKEND_URL : "10.0.2.2";
@@ -136,10 +102,10 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     setNewPotName("");
     setNewPotAmount("");
     setNewPotColor(colorOptions[0].code);
-    setEditingPotIndex(null);
+    setEditingPot(null);
   };
 
-  const addOrUpdatePot = () => {
+  const addOrUpdatePot = async () => {
     if (!newPotName || !newPotAmount) {
       Alert.alert(
         "Validation Error",
@@ -148,50 +114,44 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
       return;
     }
 
-    if (editingPotIndex !== null) {
-      // Update existing pot
-      const updatedPots = [...pots];
-      updatedPots[editingPotIndex] = {
-        ...updatedPots[editingPotIndex],
+    if (editingPot !== null) {
+      const updatedPot: Pot = {
+        id: editingPot.id,
         label: newPotName,
         amount: newPotAmount,
         color: newPotColor,
+        transactions: editingPot.transactions,
       };
-      setPots(updatedPots);
+
+      await updatePotQuery(updatedPot);
     } else {
       // Add new pot
       const newPot = {
-        id: (pots.length + 1).toString(),
         label: newPotName,
         amount: newPotAmount,
         color: newPotColor,
-        icon: "",
         transactions: [],
       };
-      setPots([...pots, newPot]);
+      await addPotQuery(newPot);
     }
     setModalVisible(false);
     resetModal();
   };
 
   const deletePot = () => {
-    if (editingPotIndex !== null) {
-      const updatedPots = pots.filter((_, index) => index !== editingPotIndex);
+    if (editingPot !== null) {
+      const updatedPots = pots.filter((pots) => pots.id !== editingPot.id);
       setPots(updatedPots);
       setModalVisible(false);
     }
   };
 
-  const openEditModal = (index: number) => {
-    const pot = pots[index];
-
-    if (pot) {
-      setNewPotName(pot.label);
-      setNewPotAmount(pot.amount);
-      setNewPotColor(pot.color);
-      setEditingPotIndex(index);
-      setModalVisible(true);
-    }
+  const openEditModal = (pot: Pot) => {
+    setNewPotName(pot.label);
+    setNewPotAmount(pot.amount.toString());
+    setNewPotColor(pot.color);
+    setEditingPot(pot);
+    setModalVisible(true);
   };
 
   useEffect(() => {
@@ -220,7 +180,6 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
   ) : (
     <View style={styles.mainContainer}>
       <SpendingPot
-        pots={pots}
         logout={logout}
         setModalVisible={setModalVisible}
         openEditModal={openEditModal}
@@ -297,12 +256,12 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
             </TouchableOpacity>
           ))}
         </ScrollView>
-        <Transactions pots={pots} setPots={setPots} />
+        <Transactions />
       </View>
       <EditPotModal
         addOrUpdatePot={addOrUpdatePot}
         deletePot={deletePot}
-        editingPotIndex={editingPotIndex}
+        editingPot={editingPot}
         isModalVisible={isModalVisible}
         setModalVisible={setModalVisible}
         newPotName={newPotName}
