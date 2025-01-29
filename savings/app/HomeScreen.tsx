@@ -22,7 +22,8 @@ import { Transactions } from "../components/Transactions";
 import { EditPotModal } from "../components/EditPotModal";
 import { colorOptions } from "../constants/Colors";
 import { SpendingPot } from "../components/SpendingPot";
-import { Pot } from "../lib/types";
+import { BankAccount, Pot } from "../lib/types";
+import Modal from "react-native-modal";
 
 const addBank = require("../assets/images/add-card.png");
 const allBanks = require("../assets/images/view-all.png");
@@ -57,9 +58,12 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     selectedCard,
     addPotQuery,
     updatePotQuery,
+    removeCard,
   } = useAppContext();
 
   const [isModalVisible, setModalVisible] = useState(false);
+  const [isRemoveBankModal, setRemoveBankModal] = useState(false);
+  const [selectedBank, setSelectedBank] = useState<BankAccount | null>(null);
   const [plaidWebView, setPlaidWebView] = useState<string | null>(null);
   const [addBankModal, setAddBankModal] = useState(false);
   const [newPotColor, setNewPotColor] = useState(colorOptions[0].code);
@@ -160,6 +164,35 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
     }
   }, []);
 
+  useEffect(() => {
+    const ws = new WebSocket(process.env.EXPO_PUBLIC_WEBSOCKET_URL || "");
+
+    ws.onopen = () => {
+      console.log("WebSocket connection opened");
+    };
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.message === "new_bank_card_ready") {
+        setAddBankModal(false);
+        getCards();
+        getBalance(bankCards.map((bank) => bank.access_token));
+      }
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket connection closed");
+    };
+
+    ws.onerror = (error) => {
+      console.log("WebSocket error:", error);
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, []);
+
   return addBankModal ? (
     <SafeAreaView style={{ flex: 1 }}>
       <WebView
@@ -167,14 +200,6 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
           uri: plaidWebView || "",
         }}
         style={styles.webview}
-      />
-      <Button
-        title="Close"
-        onPress={async () => {
-          setAddBankModal(false);
-          await getCards();
-          await getBalance(bankCards.map((bank) => bank.access_token));
-        }}
       />
     </SafeAreaView>
   ) : (
@@ -240,6 +265,10 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
                 setSelectedCard(bank);
                 getBalance([bank.access_token]);
               }}
+              onLongPress={() => {
+                setSelectedBank(bank);
+                setRemoveBankModal(true);
+              }}
             >
               <ImageBackground
                 key={bank.id}
@@ -272,6 +301,39 @@ const HomeScreen = ({ session, navigation }: HomeScreenProps) => {
         setNewPotColor={setNewPotColor}
         setNewPotAmount={setNewPotAmount}
       />
+
+      <Modal
+        isVisible={isRemoveBankModal}
+        useNativeDriver={true}
+        onBackdropPress={() => setRemoveBankModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Remove Bank Card</Text>
+          <Text style={styles.modalMessage}>
+            Are you sure you want to remove this bank card? You will lose all
+            associated transactions.
+          </Text>
+          <View style={styles.modalButtons}>
+            <Button
+              title="Cancel"
+              onPress={() => setRemoveBankModal(false)}
+              color="#888"
+            />
+            <Button
+              title="Remove"
+              onPress={async () => {
+                await removeCard(
+                  selectedBank?.access_token!,
+                  selectedBank?.item_id!
+                );
+                setRemoveBankModal(false);
+                setSelectedBank(null);
+              }}
+              color="#FF0000"
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -332,6 +394,28 @@ const styles = StyleSheet.create({
 
   webview: {
     flexGrow: 1,
+    width: "100%",
+  },
+
+  modalContainer: {
+    backgroundColor: "white",
+    padding: 20,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 10,
+  },
+  modalMessage: {
+    fontSize: 16,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     width: "100%",
   },
 });

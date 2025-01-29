@@ -71,7 +71,12 @@ export const EditPotModal = ({
             onValueChange={(itemValue) => setNewPotColor(itemValue)}
           >
             {colorOptions.map((color, index) => (
-              <Picker.Item key={index} label={color.name} value={color.code} />
+              <Picker.Item
+                key={index}
+                color="black"
+                label={color.name}
+                value={color.code}
+              />
             ))}
           </Picker>
           <View

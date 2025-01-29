@@ -1,5 +1,5 @@
 import Icon from "react-native-vector-icons/FontAwesome6";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   View,
   TouchableOpacity,
@@ -17,6 +17,8 @@ import { colorOptions } from "../constants/Colors";
 import { Pot, Transaction } from "../lib/types";
 import Modal from "react-native-modal";
 import { scaleDown } from "../utils/scaleDownPixels";
+import { getPotColor } from "../utils/getPotColorForTransaction";
+import { getTransactionIcon } from "../utils/getTransactionIcon";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -26,7 +28,6 @@ const scale = SCREEN_WIDTH / 320;
 export const Transactions = () => {
   const {
     pots,
-    setPots,
     bankCards,
     selectedCard,
     selectAllCards,
@@ -87,6 +88,7 @@ export const Transactions = () => {
     setSelectedPot(null);
   };
 
+  console.log("loading transactions", loadingTransactions);
   return (
     <>
       <View id="transaction-month" style={styles.transactionMonth}>
@@ -174,18 +176,9 @@ export const Transactions = () => {
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        width: "80%",
+                        width: "40%",
                       }}
                     >
-                      <View
-                        style={{
-                          ...styles.bankTransactionIcon,
-                          backgroundColor:
-                            colorOptions[
-                              Math.floor(Math.random() * colorOptions.length)
-                            ].code,
-                        }}
-                      ></View>
                       <Text
                         numberOfLines={1}
                         style={styles.bankTransactionName}
@@ -193,12 +186,27 @@ export const Transactions = () => {
                         {trans.name}
                       </Text>
                     </View>
-                    <Text
+                    <View
                       style={{
-                        ...styles.bankTransactionAmount,
-                        color: trans.amount > 0 ? "red" : "green",
+                        flexDirection: "row",
+                        alignItems: "center",
                       }}
-                    >{`£${trans.amount}`}</Text>
+                    >
+                      {getPotColor(pots, trans) && (
+                        <View
+                          style={{
+                            ...styles.potIcon,
+                            backgroundColor: getPotColor(pots, trans),
+                          }}
+                        ></View>
+                      )}{" "}
+                      <Text
+                        style={{
+                          ...styles.bankTransactionAmount,
+                          color: trans.amount > 0 ? "red" : "green",
+                        }}
+                      >{`£${trans.amount}`}</Text>
+                    </View>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -210,6 +218,7 @@ export const Transactions = () => {
         isVisible={isModalVisible}
         animationIn={"fadeIn"}
         useNativeDriver={true}
+        onBackdropPress={() => setModalVisible(false)}
       >
         <View style={styles.modalContainer}>
           <Text style={styles.modalTitle}>Select a Pot</Text>
@@ -317,6 +326,12 @@ const styles = StyleSheet.create({
   bankTransactionIcon: {
     height: 50,
     width: 50,
+    borderRadius: 10,
+    marginRight: 15,
+  },
+  potIcon: {
+    height: 30,
+    width: 30,
     borderRadius: 10,
     marginRight: 15,
   },

@@ -26,18 +26,6 @@ const supabase = createClient<Database>(
   process.env.TEST_SUPABASE_URL || "",
   process.env.TEST_SUPABASE_SERVICE_ROLE_KEY || ""
 );
-const redisClient = createRedisClient({
-  url: process.env.REDIS_URL || "redis://127.0.0.1:6379",
-});
-redisClient.connect().catch();
-
-redisClient.on("error", (err) => console.log("Redis Client Error", err));
-
-// Initialize store.
-const redisStore = new RedisStore({
-  client: redisClient,
-  prefix: "savingsApp:",
-});
 
 // Configuration for the Plaid client
 const config = new Configuration({

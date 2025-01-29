@@ -34,6 +34,7 @@ interface AppContextProps {
   getPots: () => Promise<void>;
   addPotQuery: (pot: Pot) => Promise<void>;
   updatePotQuery: (pot: Pot) => Promise<void>;
+  removeCard: (access_token: string, bank_id: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextProps | undefined>(undefined);
@@ -47,7 +48,7 @@ export const AppProvider = ({
 }) => {
   const [transactions, setTransactions] = useState<ReturnedTransactions[]>([]);
   const [bankCards, setBankCards] = useState<BankAccount[]>([]);
-  const [loadingTransactions, setLoadingTransactions] = useState(true);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [loadingBankCards, setLoadingBankCards] = useState(false);
   const [selectedCard, setSelectedCard] = useState<BankAccount | null>(null);
   const [selectAllCards, setSelectAllCards] = useState(false);
@@ -59,6 +60,7 @@ export const AppProvider = ({
 
   const getBalance = useCallback(
     async (access_tokens: string[]) => {
+      console.log("access tokens", access_tokens);
       setLoadingTransactions(true);
       try {
         const response = await fetch(`${address}/balance`, {
@@ -106,8 +108,6 @@ export const AppProvider = ({
         setLoadingTransactions(false);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-
-      console.log("data", response);
 
       const data = await response.json();
 
@@ -204,6 +204,39 @@ export const AppProvider = ({
     }
   }, []);
 
+  const removeCard = useCallback(
+    async (access_token: string, bank_id: string) => {
+      try {
+        console.log("getting bank cards!");
+        await fetch(`${address}/delete-bank-account`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            access_token,
+            bank_id,
+          }),
+        })
+          .then(async () => {
+            await getCards();
+          })
+          .catch((error) => {
+            setBankCards([]);
+            setLoadingBankCards(false);
+
+            throw new Error(`HTTP error! status: ${error.status}`);
+          });
+      } catch (err) {
+        setBankCards([]);
+        setLoadingBankCards(false);
+        console.log("Error removing card:", err);
+      }
+    },
+    []
+  );
+
   const setToken = async () => {
     try {
       await fetch(`${address}/set-tokens`, {
@@ -232,6 +265,8 @@ export const AppProvider = ({
     } else if (bankCards.length === 1) {
       setSelectedCard(bankCards[0]);
       getBalance([bankCards[0].access_token]);
+    } else {
+      setTransactions([]);
     }
   }, [bankCards, currentMonth]);
 
@@ -260,6 +295,7 @@ export const AppProvider = ({
         getPots,
         addPotQuery,
         updatePotQuery,
+        removeCard,
       }}
     >
       {children}

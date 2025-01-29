@@ -6,6 +6,8 @@ import { Configuration, CountryCode, PlaidApi, PlaidEnvironments } from "plaid";
 import { createClient } from "@supabase/supabase-js";
 import { Database } from "./database";
 import { createClient as createRedisClient } from "redis";
+import { WebSocketServer } from "ws";
+
 import type {
   TransactionsSupabase,
   TransactionType,
@@ -55,6 +57,21 @@ app.use(
 // Middleware to parse request bodies
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
+
+// Set up WebSocket server
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on("connection", (ws) => {
+  console.log("Client connected");
+
+  ws.on("message", (message) => {
+    console.log(`Received message => ${message}`);
+  });
+
+  ws.on("close", () => {
+    console.log("Client disconnected");
+  });
+});
 
 // Configuration for the Plaid client
 const config = new Configuration({
@@ -160,6 +177,71 @@ app.get(
   }
 );
 
+app.post(
+  "/api/delete-bank-account",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const loggedInUserToken =
+        req.headers.authorization?.split(" ")[1] || "no token found";
+
+      const { access_token, bank_id } = req.body;
+
+      const {
+        user,
+        noLoggedInUser,
+        supaError: fetchUserError,
+      } = await fetchUser(loggedInUserToken);
+
+      if (!user || noLoggedInUser || fetchUserError) {
+        res.status(400).json({
+          user,
+          noLoggedInUser,
+          fetchUserError,
+        });
+
+        console.log("Error fetching user", {
+          user,
+          noLoggedInUser,
+          fetchUserError,
+        });
+        return;
+      }
+
+      const { error: supaErrorTransaction } = await supabase
+        .from("transactions")
+        .delete()
+        .eq("bank_id", bank_id);
+
+      const { error: supaError } = await supabase
+        .from("bank_accounts")
+        .delete()
+        .eq("access_token", access_token);
+
+      if (supaErrorTransaction) {
+        res.status(400).json(supaErrorTransaction);
+        console.log("error deleting transactions", supaErrorTransaction);
+        return;
+      }
+
+      if (supaError) {
+        res.status(400).json(supaError);
+        console.log("error deleting bank accounts", supaError);
+        return;
+      }
+
+      res.json({
+        ok: true,
+      });
+
+      return;
+    } catch (error) {
+      res.status(400).json(error);
+      console.log(error);
+      next(error);
+    }
+  }
+);
+
 // Route to create a Link token
 app.get(
   "/api/create_link_token",
@@ -225,6 +307,14 @@ app.post(
       );
 
       await syncTransactions(exchangeResponse.data.item_id);
+
+      // Send WebSocket message to client
+      wss.clients.forEach((client) => {
+        if (client.readyState === client.OPEN) {
+          console.log("s--------- ending websocket message!-----------");
+          client.send(JSON.stringify({ message: "new_bank_card_ready" }));
+        }
+      });
 
       res.json(true);
     } catch (error) {
@@ -411,7 +501,10 @@ app.post(
   "/api/update-pot",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      console.log("------- Updating pots -------");
       const { id, label, amount, color, user_id, transactions } = req.body;
+
+      console.log("transaction", transactions);
 
       const { error: supaError } = await supabase
         .from("savings_pot")
@@ -610,7 +703,13 @@ const syncTransactions = async (itemId: string) => {
   } catch (error) {}
 };
 
-// Start the server
-app.listen(port, () => {
+// Upgrade HTTP server to handle WebSocket connections
+const server = app.listen(port, () => {
   console.log(`Backend server is running on port ${port}...`);
+});
+
+server.on("upgrade", (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit("connection", ws, request);
+  });
 });
