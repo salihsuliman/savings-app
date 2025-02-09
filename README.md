@@ -1,6 +1,6 @@
 # Savings App
 
-A React Native (Expo) savings application with a Node.js backend.
+A React Native (Expo) savings application with a Node.js backend using the Plaid api.
 
 ## Getting Started
 
